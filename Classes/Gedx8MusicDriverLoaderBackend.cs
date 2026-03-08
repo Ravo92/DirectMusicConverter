@@ -15,9 +15,9 @@ namespace DirectMusicConverter.Classes
         private const int MethodShutdownLoader = 0x14;
         private const int MethodReleaseType2Object = 0x30;
 
-        private static readonly Guid ClsidDirectMusicLoader = new("D2AC2881-B39B-11D1-8704-00600893B1BD");
-        private static readonly Guid IidDirectMusicLoader8 = new("19E7C679-0A44-4E6A-A116-585A7CD5DE8C");
-        private static readonly Guid GuidDirectMusicAllTypes = new("D2AC2890-B39B-11D1-8704-00600893B1BD");
+        private static readonly Guid ClsidDirectMusicLoader = new("D2AC2892-B39B-11D1-8704-00600893B1BD");
+        private static readonly Guid IidDirectMusicLoader8 = new("19E7C08C-0A44-4E6A-A116-595A7CD5DE8C");
+        private static readonly Guid GuidDirectMusicAllTypes = new("D2AC2893-B39B-11D1-8704-00600893B1BD");
 
         private bool _disposed;
         private bool _driverLoaded;
@@ -96,87 +96,86 @@ namespace DirectMusicConverter.Classes
 
             _comInitialized = ownsComInitialization;
 
-            Type? loaderType = Type.GetTypeFromCLSID(ClsidDirectMusicLoader, throwOnError: false);
-            if (loaderType == null)
-            {
-                if (_comInitialized)
-                {
-                    NativeMethods.CoUninitialize();
-                    _comInitialized = false;
-                }
-
-                LastError = "DMManager: DirectMusic loader COM class unavailable.";
-                return false;
-            }
-
-            object? comObject = Activator.CreateInstance(loaderType);
-            if (comObject == null)
-            {
-                if (_comInitialized)
-                {
-                    NativeMethods.CoUninitialize();
-                    _comInitialized = false;
-                }
-
-                LastError = "DMManager: failed to create DirectMusic loader COM object.";
-                return false;
-            }
-
             try
             {
-                IntPtr iunknownPointer = Marshal.GetIUnknownForObject(comObject);
-                try
+                Type? loaderType = Type.GetTypeFromCLSID(ClsidDirectMusicLoader, throwOnError: false);
+                if (loaderType == null)
                 {
-                    Guid iidDirectMusicLoader8 = IidDirectMusicLoader8;
-                    int hr = Marshal.QueryInterface(iunknownPointer, ref iidDirectMusicLoader8, out IntPtr interfacePointer);
-                    Marshal.ThrowExceptionForHR(hr);
+                    LastError = "DMManager: DirectMusic loader COM class unavailable.";
+                    CleanupComIfOwned();
+                    return false;
+                }
 
-                    if (interfacePointer == IntPtr.Zero)
-                    {
-                        LastError = "DMManager: QueryInterface(IDirectMusicLoader8) returned null.";
-                        return false;
-                    }
+                object? comObject = Activator.CreateInstance(loaderType);
+                if (comObject == null)
+                {
+                    LastError = "DMManager: failed to create DirectMusic loader COM object.";
+                    CleanupComIfOwned();
+                    return false;
+                }
 
+                IDirectMusicLoader8? loaderComObject = comObject as IDirectMusicLoader8;
+                if (loaderComObject == null)
+                {
                     try
                     {
-                        _loaderComObject = (IDirectMusicLoader8)Marshal.GetTypedObjectForIUnknown(interfacePointer, typeof(IDirectMusicLoader8));
+                        IntPtr iunknownPointer = Marshal.GetIUnknownForObject(comObject);
+                        try
+                        {
+                            Guid iidDirectMusicLoader8 = IidDirectMusicLoader8;
+                            int hr = Marshal.QueryInterface(iunknownPointer, in iidDirectMusicLoader8, out IntPtr interfacePointer);
+                            Marshal.ThrowExceptionForHR(hr);
+
+                            if (interfacePointer == IntPtr.Zero)
+                            {
+                                LastError = "DMManager: QueryInterface(IDirectMusicLoader8) returned null.";
+                                CleanupComIfOwned();
+                                return false;
+                            }
+
+                            try
+                            {
+                                loaderComObject = (IDirectMusicLoader8)Marshal.GetObjectForIUnknown(interfacePointer);
+                            }
+                            finally
+                            {
+                                Marshal.Release(interfacePointer);
+                            }
+                        }
+                        finally
+                        {
+                            Marshal.Release(iunknownPointer);
+                        }
                     }
-                    finally
+                    catch (Exception ex)
                     {
-                        Marshal.Release(interfacePointer);
+                        LastError = "DMManager: DirectMusic loader QueryInterface failed. " + ex.Message;
+                        CleanupComIfOwned();
+                        return false;
                     }
                 }
-                finally
+
+                if (loaderComObject == null)
                 {
-                    Marshal.Release(iunknownPointer);
+                    LastError = "DMManager: IDirectMusicLoader8 unavailable.";
+                    CleanupComIfOwned();
+                    return false;
                 }
-            }
-            catch (Exception ex)
-            {
-                LastError = "DMManager: DirectMusic loader QueryInterface failed. " + ex.Message;
-                return false;
-            }
 
-            if (_loaderComObject == null)
-            {
-                LastError = "DMManager: IDirectMusicLoader8 unavailable.";
-                return false;
-            }
-
-            try
-            {
                 Guid directMusicAllTypes = GuidDirectMusicAllTypes;
-                int hr = _loaderComObject.SetSearchDirectory(ref directMusicAllTypes, SearchDirectory, 0);
-                Marshal.ThrowExceptionForHR(hr);
+                int setSearchDirectoryResult = loaderComObject.SetSearchDirectory(ref directMusicAllTypes, SearchDirectory, 0);
+                Marshal.ThrowExceptionForHR(setSearchDirectoryResult);
+
+                _loaderComObject = loaderComObject;
+                _loaderPrepared = true;
+                return true;
             }
             catch (COMException ex)
             {
-                LastError = "DMManager: IDirectMusicLoader8::SetSearchDirectory failed. HRESULT=0x" + ex.ErrorCode.ToString("X8") + ".";
+                LastError = "DMManager: loader setup failed. HRESULT=0x" + ex.ErrorCode.ToString("X8") + ".";
+                CleanupComIfOwned();
                 return false;
             }
-
-            _loaderPrepared = true;
-            return true;
         }
 
         public bool InitializeSynthesizer()
@@ -221,17 +220,7 @@ namespace DirectMusicConverter.Classes
                 CallVoidWithInstance(MethodShutdownDriver);
             }
 
-            if (_loaderComObject != null)
-            {
-                Marshal.ReleaseComObject(_loaderComObject);
-                _loaderComObject = null;
-            }
-
-            if (_comInitialized)
-            {
-                NativeMethods.CoUninitialize();
-                _comInitialized = false;
-            }
+            CleanupComIfOwned();
 
             if (MethodTable != IntPtr.Zero)
             {
@@ -261,6 +250,21 @@ namespace DirectMusicConverter.Classes
         {
             Shutdown();
             GC.SuppressFinalize(this);
+        }
+
+        private void CleanupComIfOwned()
+        {
+            if (_loaderComObject != null)
+            {
+                Marshal.ReleaseComObject(_loaderComObject);
+                _loaderComObject = null;
+            }
+
+            if (_comInitialized)
+            {
+                NativeMethods.CoUninitialize();
+                _comInitialized = false;
+            }
         }
 
         private bool EnsureDriverLoaded()
