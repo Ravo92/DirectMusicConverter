@@ -2,15 +2,15 @@ namespace DirectMusicConverter.Classes
 {
     internal sealed class DmSegmentSlot
     {
-        internal bool IsUsed;            // +0x00
-        internal byte Unknown01;         // +0x01
-        internal byte Unknown02;         // +0x02
-        internal byte Unknown03;         // +0x03
-        internal object? SegmentHandle;  // +0x04
-        internal object? Field08;        // +0x08
-        internal object? Field0C;        // +0x0C
-        internal int Type;               // +0x10
-        internal int Variant;            // +0x14
+        internal bool IsUsed;
+        internal byte Unknown01;
+        internal byte Unknown02;
+        internal byte Unknown03;
+        internal object? SegmentHandle;  // Proprietary DLL segment wrapper.
+        internal object? Field08;        // Native scratch / load record.
+        internal object? Field0C;
+        internal int Type;
+        internal int Variant;
         internal string? SegmentName;
         internal Interfaces.IDmObject? LoadedObject;
 

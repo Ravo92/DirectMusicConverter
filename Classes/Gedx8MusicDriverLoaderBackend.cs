@@ -7,30 +7,36 @@ namespace DirectMusicConverter.Classes
     {
         private const string DriverDllName = "gedx8musicdrv.dll";
         private const string DriverExportName = "GetInterface2";
-        private const int MethodBootstrapDriver = 0x00;
+        private const int MethodBootstrap = 0x00;
         private const int MethodReleaseInterface = 0x04;
         private const int MethodCreateInstance = 0x08;
+        private const int MethodShutdownDriver = 0x0C;
         private const int MethodInitSynthesizer = 0x10;
+        private const int MethodShutdownLoader = 0x14;
+        private const int MethodReleaseType2Object = 0x30;
 
-        private readonly int _initMode;
+        private static readonly Guid ClsidDirectMusicLoader = new("D2AC2881-B39B-11D1-8704-00600893B1BD");
+        private static readonly Guid IidDirectMusicLoader8 = new("19E7C679-0A44-4E6A-A116-585A7CD5DE8C");
+        private static readonly Guid GuidDirectMusicAllTypes = new("D2AC2890-B39B-11D1-8704-00600893B1BD");
+
         private bool _disposed;
         private bool _driverLoaded;
-        private bool _performanceCreated;
-        private bool _composerCreated;
-        private bool _instanceCreated;
-        private bool _synthInitialized;
+        private bool _loaderPrepared;
+        private bool _comInitialized;
+        private IDirectMusicLoader8? _loaderComObject;
 
-        internal Gedx8MusicDriverLoaderBackend(string? driverDirectory = null, int initMode = 0)
+        internal Gedx8MusicDriverLoaderBackend(string? driverDirectory = null, int synthMode = 0)
         {
             DriverDirectory = driverDirectory;
-            _initMode = initMode;
-
-            DmSynthInitConfig config = CreateSynthInitConfig(initMode);
-            SampleRate = config.SampleRate;
-            AudiopathConfig = config.Config;
+            SynthMode = synthMode;
+            AudioPathConfig = ResolveSynthConfig(synthMode).Config;
         }
 
         internal string? DriverDirectory { get; }
+
+        internal int SynthMode { get; }
+
+        internal string? SearchDirectory { get; private set; }
 
         internal string? LastError { get; private set; }
 
@@ -42,47 +48,21 @@ namespace DirectMusicConverter.Classes
 
         internal IntPtr DriverInstance { get; private set; }
 
-        internal IntPtr LoaderContext { get; private set; }
+        internal int AudioPathConfig { get; private set; }
 
-        internal int SampleRate { get; private set; }
-
-        internal int AudiopathConfig { get; private set; }
+        internal void SetSearchDirectory(string? searchDirectory)
+        {
+            SearchDirectory = searchDirectory;
+        }
 
         public bool CreatePerformance()
         {
-            if (!EnsureDriverLoaded())
-            {
-                return false;
-            }
-
-            if (_performanceCreated)
-            {
-                return true;
-            }
-
-            IntPtr functionPointer = ReadMethodPointer(MethodBootstrapDriver);
-            if (functionPointer == IntPtr.Zero)
-            {
-                LastError = "DMManager: bootstrap method missing at +0x00.";
-                return false;
-            }
-
-            BootstrapDriverDelegate bootstrap = Marshal.GetDelegateForFunctionPointer<BootstrapDriverDelegate>(functionPointer);
-            bootstrap();
-
-            _performanceCreated = true;
-            return true;
+            return EnsureDriverLoaded();
         }
 
         public bool CreateComposer()
         {
-            if (!EnsureDriverLoaded())
-            {
-                return false;
-            }
-
-            _composerCreated = true;
-            return true;
+            return EnsureDriverLoaded();
         }
 
         public bool CreateLoaderContext()
@@ -92,13 +72,111 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
-            if (LoaderContext != IntPtr.Zero)
+            if (_loaderPrepared)
             {
                 return true;
             }
 
-            LastError = "DMManager: loader context creation is still unresolved. +0x08 is geCreateInstance, not geCreateContext.";
-            return false;
+            if (string.IsNullOrWhiteSpace(SearchDirectory))
+            {
+                LastError = "DMManager: loader search directory missing.";
+                return false;
+            }
+
+            int coInitializeResult = NativeMethods.CoInitialize(IntPtr.Zero);
+
+            bool ownsComInitialization = coInitializeResult == 0 || coInitializeResult == 1;
+            bool comAlreadyInitializedWithDifferentMode = coInitializeResult == unchecked((int)0x80010106);
+
+            if (!ownsComInitialization && !comAlreadyInitializedWithDifferentMode)
+            {
+                LastError = "DMManager: CoInitialize failed. HRESULT=0x" + coInitializeResult.ToString("X8") + ".";
+                return false;
+            }
+
+            _comInitialized = ownsComInitialization;
+
+            Type? loaderType = Type.GetTypeFromCLSID(ClsidDirectMusicLoader, throwOnError: false);
+            if (loaderType == null)
+            {
+                if (_comInitialized)
+                {
+                    NativeMethods.CoUninitialize();
+                    _comInitialized = false;
+                }
+
+                LastError = "DMManager: DirectMusic loader COM class unavailable.";
+                return false;
+            }
+
+            object? comObject = Activator.CreateInstance(loaderType);
+            if (comObject == null)
+            {
+                if (_comInitialized)
+                {
+                    NativeMethods.CoUninitialize();
+                    _comInitialized = false;
+                }
+
+                LastError = "DMManager: failed to create DirectMusic loader COM object.";
+                return false;
+            }
+
+            try
+            {
+                IntPtr iunknownPointer = Marshal.GetIUnknownForObject(comObject);
+                try
+                {
+                    Guid iidDirectMusicLoader8 = IidDirectMusicLoader8;
+                    int hr = Marshal.QueryInterface(iunknownPointer, ref iidDirectMusicLoader8, out IntPtr interfacePointer);
+                    Marshal.ThrowExceptionForHR(hr);
+
+                    if (interfacePointer == IntPtr.Zero)
+                    {
+                        LastError = "DMManager: QueryInterface(IDirectMusicLoader8) returned null.";
+                        return false;
+                    }
+
+                    try
+                    {
+                        _loaderComObject = (IDirectMusicLoader8)Marshal.GetTypedObjectForIUnknown(interfacePointer, typeof(IDirectMusicLoader8));
+                    }
+                    finally
+                    {
+                        Marshal.Release(interfacePointer);
+                    }
+                }
+                finally
+                {
+                    Marshal.Release(iunknownPointer);
+                }
+            }
+            catch (Exception ex)
+            {
+                LastError = "DMManager: DirectMusic loader QueryInterface failed. " + ex.Message;
+                return false;
+            }
+
+            if (_loaderComObject == null)
+            {
+                LastError = "DMManager: IDirectMusicLoader8 unavailable.";
+                return false;
+            }
+
+            try
+            {
+                Guid directMusicAllTypes = GuidDirectMusicAllTypes;
+                int hr = _loaderComObject.SetSearchDirectory(ref directMusicAllTypes, SearchDirectory, 0);
+                Marshal.ThrowExceptionForHR(hr);
+            }
+            catch (COMException ex)
+            {
+                LastError = "DMManager: IDirectMusicLoader8::SetSearchDirectory failed. HRESULT=0x" + ex.ErrorCode.ToString("X8") + ".";
+                return false;
+            }
+
+            _loaderPrepared = true;
+            return true;
         }
 
         public bool InitializeSynthesizer()
@@ -108,40 +186,24 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
-            if (_synthInitialized)
-            {
-                return true;
-            }
-
-            if (!CreatePerformance())
-            {
-                return false;
-            }
-
-            if (!EnsureDriverInstanceCreated())
-            {
-                return false;
-            }
-
             IntPtr functionPointer = ReadMethodPointer(MethodInitSynthesizer);
             if (functionPointer == IntPtr.Zero)
             {
-                LastError = "DMManager: geInitSynthesizer method missing at +0x10.";
+                LastError = "DMManager: geInitSynthesizer method missing.";
                 return false;
             }
 
-            DmSynthInitConfig config = CreateSynthInitConfig(_initMode);
+            InitSynthConfig synthConfig = ResolveSynthConfig(SynthMode);
+            AudioPathConfig = synthConfig.Config;
+
             InitSynthesizerDelegate initialize = Marshal.GetDelegateForFunctionPointer<InitSynthesizerDelegate>(functionPointer);
-            byte result = initialize(DriverInstance, ref config);
+            byte result = initialize(DriverInstance, ref synthConfig);
             if (result == 0)
             {
-                LastError = "DMManager: geInitSynthesizer failed. DriverInstance=0x" + DriverInstance.ToInt64().ToString("X") + ", SampleRate=" + config.SampleRate + ", Config=0x" + config.Config.ToString("X");
+                LastError = "DMManager: geInitSynthesizer failed.";
                 return false;
             }
 
-            SampleRate = config.SampleRate;
-            AudiopathConfig = config.Config;
-            _synthInitialized = true;
             return true;
         }
 
@@ -150,6 +212,25 @@ namespace DirectMusicConverter.Classes
             if (_disposed)
             {
                 return;
+            }
+
+            if (MethodTable != IntPtr.Zero && DriverInstance != IntPtr.Zero)
+            {
+                CallVoidWithInstance(MethodReleaseType2Object);
+                CallVoidWithInstance(MethodShutdownLoader);
+                CallVoidWithInstance(MethodShutdownDriver);
+            }
+
+            if (_loaderComObject != null)
+            {
+                Marshal.ReleaseComObject(_loaderComObject);
+                _loaderComObject = null;
+            }
+
+            if (_comInitialized)
+            {
+                NativeMethods.CoUninitialize();
+                _comInitialized = false;
             }
 
             if (MethodTable != IntPtr.Zero)
@@ -171,12 +252,8 @@ namespace DirectMusicConverter.Classes
             InterfaceObject = IntPtr.Zero;
             MethodTable = IntPtr.Zero;
             DriverInstance = IntPtr.Zero;
-            LoaderContext = IntPtr.Zero;
             _driverLoaded = false;
-            _performanceCreated = false;
-            _composerCreated = false;
-            _instanceCreated = false;
-            _synthInitialized = false;
+            _loaderPrepared = false;
             _disposed = true;
         }
 
@@ -228,9 +305,8 @@ namespace DirectMusicConverter.Classes
             }
 
             GetInterface2Delegate getInterface2 = Marshal.GetDelegateForFunctionPointer<GetInterface2Delegate>(getInterfacePointer);
-            getInterface2(out IntPtr interfaceObject);
-
-            if (interfaceObject == IntPtr.Zero)
+            byte ok = getInterface2(out IntPtr interfaceObject);
+            if (ok == 0 || interfaceObject == IntPtr.Zero)
             {
                 LastError = "DMManager: GetInterface2 returned null interface object.";
                 NativeMethods.FreeLibrary(LibraryHandle);
@@ -242,10 +318,40 @@ namespace DirectMusicConverter.Classes
             MethodTable = Marshal.ReadIntPtr(InterfaceObject, 4);
             if (MethodTable == IntPtr.Zero)
             {
-                LastError = "DMManager: interface object contains a null method table pointer at +0x04.";
+                LastError = "DMManager: interface object has null method table.";
                 NativeMethods.FreeLibrary(LibraryHandle);
                 LibraryHandle = IntPtr.Zero;
                 InterfaceObject = IntPtr.Zero;
+                return false;
+            }
+
+            IntPtr bootstrapPointer = ReadMethodPointer(MethodBootstrap);
+            if (bootstrapPointer != IntPtr.Zero)
+            {
+                VoidNoArgsDelegate bootstrap = Marshal.GetDelegateForFunctionPointer<VoidNoArgsDelegate>(bootstrapPointer);
+                bootstrap();
+            }
+
+            IntPtr createInstancePointer = ReadMethodPointer(MethodCreateInstance);
+            if (createInstancePointer == IntPtr.Zero)
+            {
+                LastError = "DMManager: geCreateInstance method missing.";
+                NativeMethods.FreeLibrary(LibraryHandle);
+                LibraryHandle = IntPtr.Zero;
+                InterfaceObject = IntPtr.Zero;
+                MethodTable = IntPtr.Zero;
+                return false;
+            }
+
+            CreateInstanceDelegate createInstance = Marshal.GetDelegateForFunctionPointer<CreateInstanceDelegate>(createInstancePointer);
+            DriverInstance = createInstance();
+            if (DriverInstance == IntPtr.Zero)
+            {
+                LastError = "DMManager: geCreateInstance failed.";
+                NativeMethods.FreeLibrary(LibraryHandle);
+                LibraryHandle = IntPtr.Zero;
+                InterfaceObject = IntPtr.Zero;
+                MethodTable = IntPtr.Zero;
                 return false;
             }
 
@@ -254,31 +360,16 @@ namespace DirectMusicConverter.Classes
             return true;
         }
 
-        private bool EnsureDriverInstanceCreated()
+        private void CallVoidWithInstance(int offset)
         {
-            if (DriverInstance != IntPtr.Zero)
+            IntPtr functionPointer = ReadMethodPointer(offset);
+            if (functionPointer == IntPtr.Zero || DriverInstance == IntPtr.Zero)
             {
-                _instanceCreated = true;
-                return true;
+                return;
             }
 
-            IntPtr functionPointer = ReadMethodPointer(MethodCreateInstance);
-            if (functionPointer == IntPtr.Zero)
-            {
-                LastError = "DMManager: geCreateInstance method missing at +0x08.";
-                return false;
-            }
-
-            CreateInstanceDelegate createInstance = Marshal.GetDelegateForFunctionPointer<CreateInstanceDelegate>(functionPointer);
-            DriverInstance = createInstance();
-            if (DriverInstance == IntPtr.Zero)
-            {
-                LastError = "DMManager: geCreateInstance failed.";
-                return false;
-            }
-
-            _instanceCreated = true;
-            return true;
+            VoidWithInstanceDelegate method = Marshal.GetDelegateForFunctionPointer<VoidWithInstanceDelegate>(functionPointer);
+            method(DriverInstance);
         }
 
         private IntPtr ReadMethodPointer(int offset)
@@ -291,34 +382,18 @@ namespace DirectMusicConverter.Classes
             return Marshal.ReadIntPtr(MethodTable, offset);
         }
 
-        private static DmSynthInitConfig CreateSynthInitConfig(int initMode)
+        private static InitSynthConfig ResolveSynthConfig(int synthMode)
         {
-            DmSynthInitConfig config = new()
+            return synthMode switch
             {
-                Reserved00 = 0,
-                SampleRate = 44100,
-                Config = 0x40,
+                1 => new InitSynthConfig { Reserved00 = 0, SampleRate = 22050, Config = 0x10 },
+                2 => new InitSynthConfig { Reserved00 = 0, SampleRate = 11025, Config = 0x08 },
+                _ => new InitSynthConfig { Reserved00 = 0, SampleRate = 44100, Config = 0x40 },
             };
-
-            if (initMode == 1)
-            {
-                config.SampleRate = 22050;
-                config.Config = 0x10;
-                return config;
-            }
-
-            if (initMode == 2)
-            {
-                config.SampleRate = 11025;
-                config.Config = 0x08;
-                return config;
-            }
-
-            return config;
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct DmSynthInitConfig
+        private struct InitSynthConfig
         {
             internal int Reserved00;
             internal int SampleRate;
@@ -326,16 +401,19 @@ namespace DirectMusicConverter.Classes
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate void GetInterface2Delegate(out IntPtr interfaceObject);
+        private delegate byte GetInterface2Delegate(out IntPtr interfaceObject);
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        private delegate void BootstrapDriverDelegate();
+        private delegate void VoidNoArgsDelegate();
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate IntPtr CreateInstanceDelegate();
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        private delegate byte InitSynthesizerDelegate(IntPtr driverInstance, ref DmSynthInitConfig config);
+        private delegate byte InitSynthesizerDelegate(IntPtr driverInstance, ref InitSynthConfig config);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate void VoidWithInstanceDelegate(IntPtr driverInstance);
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate void ReleaseInterfaceDelegate();

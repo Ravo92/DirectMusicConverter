@@ -7,61 +7,66 @@ namespace DirectMusicConverter
     {
         private static int Main(string[] args)
         {
-            string rootPath = args.Length >= 1 ? args[0] : Environment.CurrentDirectory;
+            string gameRoot = args.Length >= 1 ? args[0] : Environment.CurrentDirectory;
             int type = args.Length >= 2 && int.TryParse(args[1], out int parsedType) ? parsedType : 0x03;
             int variant = args.Length >= 3 && int.TryParse(args[2], out int parsedVariant) ? parsedVariant : 4;
-            string? driverDirectory = args.Length >= 4 ? args[3] : null;
-            int initMode = args.Length >= 5 && int.TryParse(args[4], out int parsedInitMode) ? parsedInitMode : 0;
+            string driverDirectory = args.Length >= 4 ? args[3] : gameRoot;
+            int synthMode = args.Length >= 5 && int.TryParse(args[4], out int parsedSynthMode) ? parsedSynthMode : 0;
+            int masterVolume = args.Length >= 6 && int.TryParse(args[5], out int parsedMasterVolume) ? parsedMasterVolume : 100;
 
-            if (!Directory.Exists(rootPath))
+            if (!Directory.Exists(gameRoot))
             {
-                Console.WriteLine("Input directory does not exist: " + rootPath);
+                Console.WriteLine("Input directory does not exist: " + gameRoot);
                 return 2;
             }
 
-            using Gedx8MusicDriverLoaderBackend loaderBackend = new(driverDirectory, initMode);
+            string dmRootPath = Path.Combine(gameRoot, "data", "dm2");
+            if (!Directory.Exists(dmRootPath))
+            {
+                Console.WriteLine("DirectMusic directory does not exist: " + dmRootPath);
+                return 2;
+            }
 
-            Console.WriteLine("Driver dir : " + (driverDirectory ?? "<null>"));
-            Console.WriteLine("Init mode  : " + initMode);
+            using Gedx8MusicDriverLoaderBackend loaderBackend = new(driverDirectory, synthMode);
+            loaderBackend.SetSearchDirectory(dmRootPath);
+
+            Console.WriteLine("Driver dir      : " + driverDirectory);
+            Console.WriteLine("Synth mode      : " + synthMode);
+            Console.WriteLine("Master volume   : " + masterVolume);
 
             bool ok = loaderBackend.CreatePerformance();
             ok &= loaderBackend.CreateComposer();
             ok &= loaderBackend.InitializeSynthesizer();
+            ok &= loaderBackend.CreateLoaderContext();
             if (!ok)
             {
                 Console.WriteLine(loaderBackend.LastError ?? "Loader initialization failed.");
-                Console.WriteLine("Press ENTER to exit.");
-                Console.ReadLine();
                 return 3;
             }
 
-            Console.WriteLine("SampleRate : " + loaderBackend.SampleRate);
-            Console.WriteLine("AP Config  : 0x" + loaderBackend.AudiopathConfig.ToString("X"));
-
-            ok = loaderBackend.CreateLoaderContext();
-            if (!ok)
+            IDmObjectRepository repository = new FileDmObjectRepository(dmRootPath);
+            Gedx8MusicDriverPlaybackBackend playbackBackend = new(loaderBackend);
+            if (!playbackBackend.SetMasterVolume(masterVolume))
             {
-                Console.WriteLine(loaderBackend.LastError ?? "Loader context creation failed.");
-                Console.WriteLine("Press ENTER to exit.");
-                Console.ReadLine();
-                return 3;
+                Console.WriteLine(playbackBackend.LastError ?? "DMManager: geSetMasterVolume failed.");
+                return 4;
             }
 
-            IDmObjectRepository repository = new FileDmObjectRepository(rootPath);
-            IDmPlaybackBackend playbackBackend = new Gedx8MusicDriverPlaybackBackend(loaderBackend);
-            DmManager manager = new(rootPath, 0, loaderBackend.AudiopathConfig);
+            DmManager manager = new(dmRootPath, synthMode, loaderBackend.AudioPathConfig);
             manager.MarkInitialized();
 
-            Console.WriteLine("Root    : " + rootPath);
-            Console.WriteLine("Type    : 0x" + type.ToString("X2") + " (" + type + ")");
-            Console.WriteLine("Variant : " + variant);
-            Console.WriteLine("Segment : " + (manager.ResolveSegmentName(type, variant) ?? "<none>"));
+            Console.WriteLine("Game root       : " + gameRoot);
+            Console.WriteLine("DM root         : " + dmRootPath);
+            Console.WriteLine("Type            : 0x" + type.ToString("X2") + " (" + type + ")");
+            Console.WriteLine("Variant         : " + variant);
+            Console.WriteLine("AudiopathConfig : 0x" + loaderBackend.AudioPathConfig.ToString("X2"));
+            Console.WriteLine("Segment         : " + (manager.ResolveSegmentName(type, variant) ?? "<none>"));
 
             bool started = manager.StartOrSwitchSegment(type, variant, repository, playbackBackend, unchecked((uint)Environment.TickCount));
             if (!started)
             {
-                Console.WriteLine(manager.LastError ?? "Playback start failed.");
-                return 4;
+                Console.WriteLine(manager.LastError ?? playbackBackend.LastError ?? "Playback start failed.");
+                return 5;
             }
 
             Console.WriteLine("Playback started. Press ENTER to stop and shut down.");

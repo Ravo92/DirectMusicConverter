@@ -2,7 +2,7 @@
   "profiles": {
     "DirectMusicConverter": {
       "commandName": "Project",
-      "commandLineArgs": "\"E:\\Steam\\steamapps\\common\\Cultures 8th Wonder\" 3 4 \"E:\\Steam\\steamapps\\common\\Cultures 8th Wonder\""
+      "commandLineArgs": "\"E:\\Steam\\steamapps\\common\\Cultures 8th Wonder\" 3 4 \"E:\\Steam\\steamapps\\common\\Cultures 8th Wonder\" 0 100"
     }
   }
 }

@@ -3,6 +3,7 @@ namespace DirectMusicConverter.Interfaces
     internal interface IDmPlaybackBackend
     {
         bool LoadCachedObject(IDmObject obj, string? rootPath, out object? segmentHandle, out object? loadedState);
+        bool SetMasterVolume(int volumePercent);
         bool CreateAudiopath(int audiopathMode, int config, object? segmentHandle, out object? audiopath);
         bool ActivateAudiopath(object? audiopath, bool active);
         bool DestroyAudiopath(object? audiopath);

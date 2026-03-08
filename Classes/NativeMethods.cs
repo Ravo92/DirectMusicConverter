@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 
 namespace DirectMusicConverter.Classes
 {
@@ -13,5 +13,11 @@ namespace DirectMusicConverter.Classes
         [DllImport("kernel32", EntryPoint = "FreeLibrary", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool FreeLibrary(IntPtr moduleHandle);
+
+        [DllImport("ole32", EntryPoint = "CoInitialize", SetLastError = false)]
+        internal static extern int CoInitialize(IntPtr reserved);
+
+        [DllImport("ole32", EntryPoint = "CoUninitialize", SetLastError = false)]
+        internal static extern void CoUninitialize();
     }
 }

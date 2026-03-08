@@ -340,7 +340,8 @@ namespace DirectMusicConverter.Classes
             }
 
             int audiopathMode = _musicMode == 2 ? 1 : 3;
-            bool created = backend.CreateAudiopath(audiopathMode, _audiopathConfig, slot.SegmentHandle, out object? audiopath);
+            object? segmentForAudiopath = _musicMode == 2 ? null : slot.SegmentHandle;
+            bool created = backend.CreateAudiopath(audiopathMode, _audiopathConfig, segmentForAudiopath, out object? audiopath);
             if (!created)
             {
                 _lastError = "DMManager: geCreateAudiopath failed.";
@@ -351,6 +352,7 @@ namespace DirectMusicConverter.Classes
             if (!activated)
             {
                 _lastError = "DMManager: geActivateAudiopath failed.";
+                backend.DestroyAudiopath(audiopath);
                 return false;
             }
 
