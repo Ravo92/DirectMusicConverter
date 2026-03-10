@@ -106,6 +106,7 @@ namespace DirectMusicConverter
             Console.ReadLine();
 
             Logger.Logger.Info("Program", "Stopping playback.");
+            manager.ResetAllSegmentPlaybackStates(playbackBackend);
             manager.Shutdown(playbackBackend);
             Logger.Logger.Info("Program", "Shutdown complete.");
             return 0;
