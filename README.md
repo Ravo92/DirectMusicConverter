@@ -1,65 +1,137 @@
-# Current DirectMusic / gedx8musicdrv Status
+# DirectMusic / gedx8musicdrv Status
 
-## Confirmed by ASM/C# comparison
+This document summarizes the current reverse-engineering and integration status of `gedx8musicdrv.dll` and the DirectMusic playback path used by the project.
 
-- `+0x08` creates the driver instance.
-- `+0x10` initializes the synthesizer with the 12-byte config structure.
-- `+0x20` loads a cached object and returns the created wrapper at `record + 0x00`.
-- `+0x34` creates an audiopath object.
-- `+0x38` activates an audiopath.
-- `+0x54` starts segment playback using the loaded segment wrapper.
-- `+0x5C` queries playback state using the loaded segment wrapper.
+## What currently works
 
-The recent runtime log confirms that:
-- segment loading succeeds
-- audiopath creation succeeds
-- playback start succeeds
-- playback state changes from `0` to `1`
+The main playback path is working.
 
-This means the main playback path is no longer the primary blocker.
+The following steps are currently confirmed by ASM review and runtime behavior:
 
-## Most likely remaining practical issue
+- `+0x08` creates the driver instance
+- `+0x10` initializes the synthesizer using the 12-byte init structure
+- `+0x20` loads a cached object and returns the created wrapper
+- `+0x34` creates an audiopath object
+- `+0x38` activates an audiopath object
+- `+0x3C` is currently used as the normal audiopath state / volume-style call and is exposed as `SetVolumeOfAudiopath(...)`
+- `+0x54` starts segment playback using the loaded segment wrapper
+- `+0x5C` queries playback state using the loaded segment wrapper
 
-Current successful runtime logs show:
+In practical terms, the project can now:
 
-- segment loading succeeds
-- audiopath creation succeeds
-- audiopath activation succeeds
-- playback start succeeds
-- playback state changes from `0` to `1`
+- load `.sgt` segments
+- create and activate an audiopath
+- start segment playback
+- play music successfully in stable runs
 
-So the primary playback path is now working far enough that the driver believes the segment is running.
+## Important practical finding
 
-The most likely remaining practical issue is now audiopath-level volume/state initialization on the normal playback path.
+The biggest remaining issue was **not** the basic playback path itself, but **native timing / settling**.
 
-In the current C# flow, the normal path creates and activates an audiopath, but does not explicitly normalize its audiopath volume afterward.
-The codebase already uses `SetVolumeOfAudiopath(...)` with `0` as the restore/normal level in the special/fade path, which strongly suggests that an explicit `SetVolumeOfAudiopath(audiopath, 0, 0)` should also be applied after successful audiopath activation in the normal path.
+The driver can report success for:
 
-## Important source-state note
+- segment loading
+- audiopath creation
+- audiopath activation
+- playback start
 
-The uploaded `/mnt` source and the latest successful runtime log are not fully in sync.
+while the final audio output is still not fully ready.
 
-The uploaded `Gedx8MusicDriverPlaybackBackend.cs` still contains the previously tested `CreateAudiopath(...)` call shape with:
+Without extra settling time, this led to inconsistent behavior such as:
 
-- arg2 = reserved
-- arg3 = out wrapper
-- arg4 = config
+- no audible sound
+- wrong instruments
+- playback state reporting `0` while sound was already audible
+- playback state reporting `1` while the final output was still incorrect
 
-But the successful runtime log corresponds to the older working call shape where audiopath creation succeeds.
-So the uploaded source snapshot should be treated as partially stale relative to the latest local run.
+## Current stable workaround
 
-## Revised +0x34 audiopath mapping
+Playback became stable after introducing explicit settling time at key transition points:
 
-The previous note claiming that argument 2 is unused and argument 4 is the config pointer was incorrect.
+- wait after `geLoadCachedObject`
+- wait after `geActivateAudiopath`
+- poll playback state longer after `geStartSegmentPlayback`
 
-Current ASM review of `10001B70` shows:
+These waits are currently required for stable playback and should be treated as part of the practical integration, not as arbitrary hacks.
 
-- argument 3 is the output pointer receiving the created audiopath wrapper
-- argument 4 is an optional wrapper-like object, because the wrapper checks `[arg4+4]` and consumes `[arg4+0x0C]`
-- the working C# call shape is therefore consistent with:
-  - arg1 = driver instance
-  - arg2 = audiopath config pointer
-  - arg3 = out audiopath pointer
-  - arg4 = optional segment wrapper
+## Current synthesizer init path
 
-This matches the earlier runtime behavior where audiopath creation succeeded, while the later modified call shape caused immediate `geCreateAudiopath failed`.
+The currently reliable synthesizer init path is the fixed legacy mapping:
+
+- mode `0` -> `44100`, `0x40`
+- mode `1` -> `22050`, `0x10`
+- mode `2` -> `11025`, `0x08`
+
+Although the DLL accepts a sample rate through the 12-byte init structure, the known-good runtime path currently remains the fixed legacy mapping above.
+
+## Normal playback path
+
+The normal playback path should currently do the following:
+
+1. create the audiopath
+2. activate the audiopath
+3. normalize the audiopath state with:
+
+```csharp
+SetVolumeOfAudiopath(audiopath, 0, 0);
+```
+
+4. wait for the native pipeline to settle
+5. start segment playback
+6. poll playback state long enough for the native graph to stabilize
+
+## Known limitations
+
+A few parts are still only partially understood.
+
+### `+0x58`
+
+`+0x58` is a real segment-wrapper method, but it is **not** part of the reliable normal startup sequence.
+
+Calling it at the wrong point can push playback back into a non-running state, so it should not be inserted into the standard start path without a clearly confirmed reason.
+
+### `+0x40`, `+0x44`, `+0x48`
+
+Additional wrappers exist around:
+
+- `+0x40`
+- `+0x44`
+- `+0x48`
+
+These appear to belong to an audiopath property / dispatcher layer, but their exact semantics are still not fully confirmed.
+
+They are not required for the currently working playback path and should be treated as future reverse-engineering targets rather than mandatory startup calls.
+
+## Segment wrapper notes
+
+The loaded segment wrapper currently behaves consistently enough to rule out a simple pointer-corruption explanation.
+
+Observed stable fields:
+
+- `wrapper + 0x04 = 0`
+- `wrapper + 0x08 = 2`
+- `wrapper + 0x0C = native payload pointer used by the start / reset / state wrappers`
+
+Differences in wrapper addresses such as `...0700` vs `...0788` are not, by themselves, evidence of corruption. They are more likely normal allocation differences or different internal native states.
+
+## What this means overall
+
+The core playback chain is now understood well enough to work.
+
+The remaining fragility was mainly caused by the fact that successful native return values do **not** mean the entire DirectMusic playback graph is already fully ready.
+
+The current practical solution is therefore:
+
+- keep the known-good fixed synth init path
+- keep `SetVolumeOfAudiopath(audiopath, 0, 0)` in the normal path
+- keep the timing delays and longer playback-state polling
+- document the waits clearly in code comments as required native settling behavior
+
+## Next steps
+
+Recommended future work:
+
+- clean up the timing constants and centralize them
+- document the stable startup sequence directly in code
+- continue reverse-engineering `+0x40 / +0x44 / +0x48`
+- further investigate instrument / dependency binding behavior for full determinism
