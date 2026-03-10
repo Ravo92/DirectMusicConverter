@@ -10,6 +10,9 @@ namespace DirectMusicConverter.Classes
         private const int MethodCreateAudiopath = 0x34;
         private const int MethodActivateAudiopath = 0x38;
         private const int MethodSetVolumeOfAudiopath = 0x3C;
+        private const int MethodGetAudiopathCachedValue = 0x40;
+        private const int MethodDispatchAudiopathPropertyIndexed = 0x44;
+        private const int MethodDispatchAudiopathPropertyDirect = 0x48;
         private const int MethodDestroyAudiopath = 0x50;
         private const int MethodStartSegmentPlayback = 0x54;
         private const int MethodResetSegmentPlayback = 0x58;
@@ -151,6 +154,107 @@ namespace DirectMusicConverter.Classes
                     Marshal.FreeHGlobal(basePathPointer);
                 }
             }
+        }
+
+        public bool GetAudiopathCachedValue(object? audiopath, out int value)
+        {
+            value = 0;
+
+            IntPtr audiopathPointer = ResolveNativePointer(audiopath);
+            if (audiopathPointer == IntPtr.Zero)
+            {
+                LastError = "DMManager: null audiopath wrapper.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
+                return false;
+            }
+
+            GetAudiopathCachedValueDelegate? method = GetMethod<GetAudiopathCachedValueDelegate>(MethodGetAudiopathCachedValue);
+            if (method == null)
+            {
+                return false;
+            }
+
+            byte result = method(_loaderBackend.DriverInstance, audiopathPointer, out value);
+            Logger.Logger.Info("PlaybackBackend", "GetAudiopathCachedValue returned " + result + ", value=" + value);
+
+            if (result == 0)
+            {
+                LastError = "DMManager: geGetAudiopathCachedValue failed.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
+                return false;
+            }
+
+            return true;
+        }
+
+        public bool DispatchAudiopathPropertyIndexed(object? audiopath, int selector, IntPtr valuePointer)
+        {
+            IntPtr audiopathPointer = ResolveNativePointer(audiopath);
+            if (audiopathPointer == IntPtr.Zero)
+            {
+                LastError = "DMManager: null audiopath wrapper.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
+                return false;
+            }
+
+            DispatchAudiopathPropertyDelegate? method = GetMethod<DispatchAudiopathPropertyDelegate>(MethodDispatchAudiopathPropertyIndexed);
+            if (method == null)
+            {
+                return false;
+            }
+
+            Logger.Logger.Info(
+                "PlaybackBackend",
+                "DispatchAudiopathPropertyIndexed entered. Audiopath=" + Logger.Logger.FormatPointer(audiopathPointer) +
+                ", selector=" + selector +
+                ", valuePointer=" + Logger.Logger.FormatPointer(valuePointer));
+
+            byte result = method(_loaderBackend.DriverInstance, audiopathPointer, selector, valuePointer);
+            Logger.Logger.Info("PlaybackBackend", "DispatchAudiopathPropertyIndexed result=" + result);
+
+            if (result == 0)
+            {
+                LastError = "DMManager: geDispatchAudiopathPropertyIndexed failed.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
+                return false;
+            }
+
+            return true;
+        }
+
+        public bool DispatchAudiopathPropertyDirect(object? audiopath, int selector, IntPtr valuePointer)
+        {
+            IntPtr audiopathPointer = ResolveNativePointer(audiopath);
+            if (audiopathPointer == IntPtr.Zero)
+            {
+                LastError = "DMManager: null audiopath wrapper.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
+                return false;
+            }
+
+            DispatchAudiopathPropertyDelegate? method = GetMethod<DispatchAudiopathPropertyDelegate>(MethodDispatchAudiopathPropertyDirect);
+            if (method == null)
+            {
+                return false;
+            }
+
+            Logger.Logger.Info(
+                "PlaybackBackend",
+                "DispatchAudiopathPropertyDirect entered. Audiopath=" + Logger.Logger.FormatPointer(audiopathPointer) +
+                ", selector=" + selector +
+                ", valuePointer=" + Logger.Logger.FormatPointer(valuePointer));
+
+            byte result = method(_loaderBackend.DriverInstance, audiopathPointer, selector, valuePointer);
+            Logger.Logger.Info("PlaybackBackend", "DispatchAudiopathPropertyDirect result=" + result);
+
+            if (result == 0)
+            {
+                LastError = "DMManager: geDispatchAudiopathPropertyDirect failed.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
+                return false;
+            }
+
+            return true;
         }
 
         public bool SetMasterVolume(int volumePercent)
@@ -298,7 +402,32 @@ namespace DirectMusicConverter.Classes
 
         public bool ResetSegmentPlayback(object? segmentHandle, int value)
         {
-            Logger.Logger.Warning("PlaybackBackend", "ResetSegmentPlayback skipped because the +0x58 wrapper expects pointer-style input and is not a confirmed integer reset call.");
+            IntPtr segmentPointer = ResolveNativePointer(segmentHandle);
+            if (segmentPointer == IntPtr.Zero)
+            {
+                LastError = "DMManager: null segment wrapper.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
+                return false;
+            }
+
+            ResetSegmentPlaybackDelegate? method = GetMethod<ResetSegmentPlaybackDelegate>(MethodResetSegmentPlayback);
+            if (method == null)
+            {
+                return false;
+            }
+
+            Logger.Logger.Info("PlaybackBackend", "ResetSegmentPlayback entered. SegmentWrapper=" + Logger.Logger.FormatPointer(segmentPointer) + ", value=" + value);
+
+            byte result = method(_loaderBackend.DriverInstance, segmentPointer, value);
+            Logger.Logger.Info("PlaybackBackend", "geResetSegmentPlayback result=" + result);
+
+            if (result == 0)
+            {
+                LastError = "DMManager: geResetSegmentPlayback failed.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
+                return false;
+            }
+
             return true;
         }
 
@@ -556,6 +685,12 @@ namespace DirectMusicConverter.Classes
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate byte DestroySegmentDelegate(IntPtr driverInstance, IntPtr segmentWrapper);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate byte GetAudiopathCachedValueDelegate(IntPtr driverInstance, IntPtr audiopath, out int value);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate byte DispatchAudiopathPropertyDelegate(IntPtr driverInstance, IntPtr audiopath, int selector, IntPtr valuePointer);
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate byte StartSegmentDelegate(IntPtr driverInstance, IntPtr audiopath, IntPtr segmentWrapper, int flags, int startTime, int repeatCount, int unknown);

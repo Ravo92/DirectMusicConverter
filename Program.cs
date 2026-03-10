@@ -82,7 +82,7 @@ namespace DirectMusicConverter
             DmManager manager = new(dmRootPath, synthMode, loaderBackend.AudioPathConfig);
             manager.MarkInitialized();
 
-            string? segmentName = manager.ResolveSegmentName(type, variant);
+            string? segmentName = DmManager.ResolveSegmentName(type, variant);
 
             Console.WriteLine("Game root       : " + gameRoot);
             Console.WriteLine("DM root         : " + dmRootPath);
@@ -106,7 +106,6 @@ namespace DirectMusicConverter
             Console.ReadLine();
 
             Logger.Logger.Info("Program", "Stopping playback.");
-            manager.ResetAllSegmentPlaybackStates(playbackBackend);
             manager.Shutdown(playbackBackend);
             Logger.Logger.Info("Program", "Shutdown complete.");
             return 0;

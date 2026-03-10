@@ -48,7 +48,7 @@ namespace DirectMusicConverter.Classes
             _isInitialized = true;
         }
 
-        internal string? ResolveSegmentName(int type, int variant)
+        internal static string? ResolveSegmentName(int type, int variant)
         {
             if (type < FirstPlayableType || type > LastPlayableType)
             {
@@ -224,35 +224,18 @@ namespace DirectMusicConverter.Classes
                     continue;
                 }
 
-                // The +0x58 wrapper takes a pointer argument, not the previously assumed integer-reset call.
-                // Until the exact native semantics are fully confirmed, shutdown should not issue this call.
+                bool resetApplied = backend.ResetSegmentPlayback(slot.SegmentHandle, 0);
+                Logger.Logger.Info("DmManager", "ResetSegmentPlayback(slot[" + i + "]) returned " + resetApplied + ", value=0, segment='" + (slot.SegmentName ?? "<null>") + "'");
 
+                if (!resetApplied)
+                {
+                    _lastError = "DMManager: geResetSegmentPlayback failed while clearing segment states.";
+                    Logger.Logger.Warning("DmManager", _lastError);
+                }
             }
 
             _currentType = 0;
             _currentVariant = 0;
-        }
-
-        internal void UpdateSpecialState(IDmPlaybackBackend backend, uint now)
-        {
-            if (!_specialVolumeApplied)
-            {
-                return;
-            }
-
-            if (_specialDeadline == 0)
-            {
-                return;
-            }
-
-            if (now < _specialDeadline)
-            {
-                return;
-            }
-
-            _specialDeadline = 0;
-            _specialVolumeApplied = false;
-            backend.SetVolumeOfAudiopath(_audiopath, 0, FadeDownMilliseconds);
         }
 
         internal bool Shutdown(IDmPlaybackBackend backend)

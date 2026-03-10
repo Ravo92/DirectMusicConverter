@@ -9,6 +9,9 @@ namespace DirectMusicConverter.Interfaces
         bool DestroyAudiopath(object? audiopath);
         bool DestroySegment(object? segmentHandle);
         bool SetVolumeOfAudiopath(object? audiopath, int volume, int rampMilliseconds);
+        bool GetAudiopathCachedValue(object? audiopath, out int value);
+        bool DispatchAudiopathPropertyIndexed(object? audiopath, int selector, IntPtr valuePointer);
+        bool DispatchAudiopathPropertyDirect(object? audiopath, int selector, IntPtr valuePointer);
         bool StartSegmentPlayback(object? audiopath, object? segmentHandle, int flags, int startTime, int repeatCount, int unknown);
         bool ResetSegmentPlayback(object? segmentHandle, int value);
         bool GetPlaybackStateOfSegment(object? segmentHandle, out byte state);
