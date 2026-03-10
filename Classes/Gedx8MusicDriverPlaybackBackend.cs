@@ -25,7 +25,6 @@ namespace DirectMusicConverter.Classes
         }
 
         internal string? LastError { get; private set; }
-
         public bool LoadCachedObject(IDmObject obj, string? rootPath, out object? segmentHandle, out object? loadedState)
         {
             segmentHandle = null;
@@ -65,10 +64,20 @@ namespace DirectMusicConverter.Classes
             {
                 ZeroMemory(nativeRecordPointer, NativeSegmentRecordSize);
 
+                // Native layout reconstructed from gedx8musicdrv +0x20:
+                // record + 0x00 = out wrapper pointer written by the DLL
+                // record + 0x04 = descriptor.typeOrKind (0 for segment load path)
+                // record + 0x08 = ANSI file name pointer
+                // record + 0x0C = reserved / zero
+                // record + 0x10 = reserved / zero
+                // record + 0x14 = reserved / zero
+                Marshal.WriteInt32(nativeRecordPointer, 0x04, 0);
                 Marshal.WriteIntPtr(nativeRecordPointer, 0x08, fileNamePointer);
-                Marshal.WriteInt32(nativeRecordPointer, 0x0C, obj.Type);
-                Marshal.WriteInt32(nativeRecordPointer, 0x10, obj.Variant);
 
+                IntPtr nativeDescriptorPointer = IntPtr.Add(nativeRecordPointer, 0x04);
+                IntPtr wrapperOutputPointer = nativeRecordPointer;
+
+                Logger.Logger.Info("PlaybackBackend", "nativeDescriptorPointer=" + Logger.Logger.FormatPointer(nativeDescriptorPointer) + ", wrapperOutputPointer=" + Logger.Logger.FormatPointer(wrapperOutputPointer));
                 Logger.Logger.DumpBytes("PlaybackBackend", "Native record before geLoadCachedObject", nativeRecordPointer, NativeSegmentRecordSize);
 
                 LoadCachedObjectDelegate? method = GetMethod<LoadCachedObjectDelegate>(MethodLoadCachedObject);
@@ -78,10 +87,9 @@ namespace DirectMusicConverter.Classes
                     return false;
                 }
 
-                IntPtr wrapperOutputPointer = IntPtr.Add(nativeRecordPointer, 0x04);
-                Logger.Logger.Info("PlaybackBackend", "Calling geLoadCachedObject with DriverInstance=" + Logger.Logger.FormatPointer(_loaderBackend.DriverInstance) + ", mode=0, wrapperOutputPointer=" + Logger.Logger.FormatPointer(wrapperOutputPointer) + ", nativeRecordPointer=" + Logger.Logger.FormatPointer(nativeRecordPointer) + ", basePathPointer=" + Logger.Logger.FormatPointer(basePathPointer));
+                Logger.Logger.Info("PlaybackBackend", "Calling geLoadCachedObject with DriverInstance=" + Logger.Logger.FormatPointer(_loaderBackend.DriverInstance) + ", mode=0, descriptor=" + Logger.Logger.FormatPointer(nativeDescriptorPointer) + ", outWrapper=" + Logger.Logger.FormatPointer(wrapperOutputPointer) + ", basePathPointer=" + Logger.Logger.FormatPointer(basePathPointer));
 
-                byte result = method(_loaderBackend.DriverInstance, 0, wrapperOutputPointer, nativeRecordPointer, basePathPointer);
+                byte result = method(_loaderBackend.DriverInstance, 0, nativeDescriptorPointer, wrapperOutputPointer, basePathPointer);
 
                 Logger.Logger.Info("PlaybackBackend", "geLoadCachedObject result=" + result);
                 Logger.Logger.DumpBytes("PlaybackBackend", "Native record after geLoadCachedObject", nativeRecordPointer, NativeSegmentRecordSize);
@@ -93,8 +101,11 @@ namespace DirectMusicConverter.Classes
                     return false;
                 }
 
-                IntPtr wrapperPointer = Marshal.ReadIntPtr(nativeRecordPointer, 0x04);
-                Logger.Logger.Info("PlaybackBackend", "WrapperPointer=" + Logger.Logger.FormatPointer(wrapperPointer));
+                IntPtr wrapperPointer = Marshal.ReadIntPtr(nativeRecordPointer, 0x00);
+                IntPtr descriptorKind = new(Marshal.ReadInt32(nativeRecordPointer, 0x04));
+                IntPtr descriptorFileName = Marshal.ReadIntPtr(nativeRecordPointer, 0x08);
+
+                Logger.Logger.Info("PlaybackBackend", "Record fields after load: +00=" + Logger.Logger.FormatPointer(wrapperPointer) + ", +04=" + Logger.Logger.FormatPointer(descriptorKind) + ", +08=" + Logger.Logger.FormatPointer(descriptorFileName));
 
                 if (wrapperPointer == IntPtr.Zero)
                 {
@@ -152,10 +163,17 @@ namespace DirectMusicConverter.Classes
 
             int clampedPercent = Math.Clamp(volumePercent, 0, 100);
             int nativeVolume = ConvertMasterVolumePercentToNative(clampedPercent);
+
+            Logger.Logger.Info("PlaybackBackend", "SetMasterVolume entered. volumePercent=" + volumePercent + ", clampedPercent=" + clampedPercent + ", nativeVolume=" + nativeVolume);
+
             byte result = method(_loaderBackend.DriverInstance, nativeVolume);
+
+            Logger.Logger.Info("PlaybackBackend", "SetMasterVolume native result=" + result);
+
             if (result == 0)
             {
                 LastError = "DMManager: geSetMasterVolume failed.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
                 return false;
             }
 
@@ -197,7 +215,7 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
-            DmAudiopathConfig nativeConfig = new DmAudiopathConfig
+            DmAudiopathConfig nativeConfig = new()
             {
                 Mode = audiopathMode,
                 Config = config,
@@ -205,6 +223,7 @@ namespace DirectMusicConverter.Classes
 
             IntPtr outAudiopath = IntPtr.Zero;
             IntPtr optionalSegmentWrapper = ResolveNativePointer(segmentHandle);
+
             byte result = method(_loaderBackend.DriverInstance, ref nativeConfig, ref outAudiopath, optionalSegmentWrapper);
             if (result == 0 || outAudiopath == IntPtr.Zero)
             {
@@ -242,28 +261,10 @@ namespace DirectMusicConverter.Classes
 
         public bool DestroySegment(object? segmentHandle)
         {
-            IntPtr segmentPointer = ResolveNativePointer(segmentHandle);
-            if (segmentPointer == IntPtr.Zero)
-            {
-                return true;
-            }
-
-            DestroySegmentDelegate? method = GetMethod<DestroySegmentDelegate>(MethodDestroySegment);
-            if (method == null)
-            {
-                return false;
-            }
-
-            byte result = method(_loaderBackend.DriverInstance, segmentPointer);
             if (segmentHandle is NativeSegmentHandle nativeSegmentHandle)
             {
+                Logger.Logger.Warning("PlaybackBackend", "DestroySegment uses a safe local cleanup path because the native destroy slot for the loaded type-0 segment wrapper is still not confirmed.");
                 nativeSegmentHandle.Dispose();
-            }
-
-            if (result == 0)
-            {
-                LastError = "DMManager: geDestroySegment failed.";
-                return false;
             }
 
             return true;
@@ -297,26 +298,7 @@ namespace DirectMusicConverter.Classes
 
         public bool ResetSegmentPlayback(object? segmentHandle, int value)
         {
-            IntPtr segmentPointer = ResolveNativePointer(segmentHandle);
-            if (segmentPointer == IntPtr.Zero)
-            {
-                LastError = "DMManager: null segment wrapper.";
-                return false;
-            }
-
-            ResetSegmentPlaybackDelegate? method = GetMethod<ResetSegmentPlaybackDelegate>(MethodResetSegmentPlayback);
-            if (method == null)
-            {
-                return false;
-            }
-
-            byte result = method(_loaderBackend.DriverInstance, segmentPointer, value);
-            if (result == 0)
-            {
-                LastError = "DMManager: geResetSegmentPlayback failed.";
-                return false;
-            }
-
+            Logger.Logger.Warning("PlaybackBackend", "ResetSegmentPlayback skipped because the +0x58 wrapper expects pointer-style input and is not a confirmed integer reset call.");
             return true;
         }
 
@@ -329,7 +311,7 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
-            SetVolumeDelegate? method = GetMethod<SetVolumeDelegate>(MethodSetVolumeOfAudiopath);
+            SetVolumeOfAudiopathDelegate? method = GetMethod<SetVolumeOfAudiopathDelegate>(MethodSetVolumeOfAudiopath);
             if (method == null)
             {
                 return false;
@@ -429,15 +411,33 @@ namespace DirectMusicConverter.Classes
 
         private static int ConvertMasterVolumePercentToNative(int volumePercent)
         {
-            if (volumePercent <= 0)
+            int clampedPercent = Math.Clamp(volumePercent, 0, 100);
+
+            if (clampedPercent == 0)
             {
-                return unchecked((int)0xFFFFD8F0);
+                return -10000;
             }
 
-            double scaled = volumePercent * 0.01;
-            double db = Math.Log10(scaled) * 2000.0;
-            int rounded = (int)Math.Round(db, MidpointRounding.AwayFromZero);
-            return unchecked((int)0xFFFFFE0C) - rounded;
+            if (clampedPercent == 100)
+            {
+                return 0;
+            }
+
+            double linear = clampedPercent / 100.0;
+            double attenuationDb = 2000.0 * Math.Log10(linear);
+            int nativeVolume = (int)Math.Round(attenuationDb, MidpointRounding.AwayFromZero);
+
+            if (nativeVolume > 0)
+            {
+                nativeVolume = 0;
+            }
+
+            if (nativeVolume < -10000)
+            {
+                nativeVolume = -10000;
+            }
+
+            return nativeVolume;
         }
 
         private static string EnsureTrailingSlash(string path)
@@ -506,7 +506,7 @@ namespace DirectMusicConverter.Classes
                         return IntPtr.Zero;
                     }
 
-                    return Marshal.ReadIntPtr(NativeRecordPointer, 0x04);
+                    return Marshal.ReadIntPtr(NativeRecordPointer, 0x00);
                 }
             }
 
@@ -540,7 +540,7 @@ namespace DirectMusicConverter.Classes
         private delegate byte SetMasterVolumeDelegate(IntPtr driverInstance, int nativeVolume);
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        private delegate byte LoadCachedObjectDelegate(IntPtr driverInstance, int mode, IntPtr wrapperOutputPointer, IntPtr nativeRecordPointer, IntPtr basePathAnsi);
+        private delegate byte LoadCachedObjectDelegate(IntPtr driverInstance, int mode, IntPtr nativeDescriptorPointer, IntPtr wrapperOutputPointer, IntPtr basePathAnsi);
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate byte CreateAudiopathDelegate(IntPtr driverInstance, ref DmAudiopathConfig config, ref IntPtr audiopath, IntPtr optionalSegmentWrapper);
@@ -552,10 +552,10 @@ namespace DirectMusicConverter.Classes
         private delegate byte DestroyAudiopathDelegate(IntPtr driverInstance, IntPtr audiopath);
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        private delegate byte DestroySegmentDelegate(IntPtr driverInstance, IntPtr segmentWrapper);
+        private delegate byte SetVolumeOfAudiopathDelegate(IntPtr driverInstance, IntPtr audiopath, int volume, int rampMilliseconds);
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        private delegate byte SetVolumeDelegate(IntPtr driverInstance, IntPtr audiopath, int volume, int rampMilliseconds);
+        private delegate byte DestroySegmentDelegate(IntPtr driverInstance, IntPtr segmentWrapper);
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate byte StartSegmentDelegate(IntPtr driverInstance, IntPtr audiopath, IntPtr segmentWrapper, int flags, int startTime, int repeatCount, int unknown);

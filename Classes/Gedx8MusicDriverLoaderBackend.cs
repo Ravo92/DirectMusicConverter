@@ -25,11 +25,13 @@ namespace DirectMusicConverter.Classes
         private bool _comInitialized;
         private IDirectMusicLoader8? _loaderComObject;
 
-        internal Gedx8MusicDriverLoaderBackend(string? driverDirectory = null, int synthMode = 0)
+        internal Gedx8MusicDriverLoaderBackend(string? driverDirectory = null, int synthMode = 0, int preferredSampleRate = 0)
         {
             DriverDirectory = driverDirectory;
             SynthMode = synthMode;
-            AudioPathConfig = ResolveSynthConfig(synthMode).Config;
+            PreferredSampleRate = preferredSampleRate;
+            AudioPathConfig = ResolveSynthConfig(synthMode, preferredSampleRate).Config;
+            // _ = preferredSampleRate > 0 ? BuildSynthConfigForSampleRate(preferredSampleRate) : ResolveSynthConfig(SynthMode, PreferredSampleRate);
         }
 
         internal string? DriverDirectory { get; }
@@ -49,6 +51,8 @@ namespace DirectMusicConverter.Classes
         internal IntPtr DriverInstance { get; private set; }
 
         internal int AudioPathConfig { get; private set; }
+
+        internal int PreferredSampleRate { get; }
 
         internal void SetSearchDirectory(string? searchDirectory)
         {
@@ -220,42 +224,43 @@ namespace DirectMusicConverter.Classes
 
         public bool InitializeSynthesizer()
         {
-            Logger.Logger.Info("LoaderBackend", "InitializeSynthesizer entered.");
-
             if (!EnsureDriverLoaded())
             {
-                Logger.Logger.Error("LoaderBackend", "InitializeSynthesizer aborted because EnsureDriverLoaded failed. LastError='" + (LastError ?? "<null>") + "'");
                 return false;
             }
 
             IntPtr functionPointer = ReadMethodPointer(MethodInitSynthesizer);
-            Logger.Logger.Info("LoaderBackend", "MethodInitSynthesizer pointer=" + Logger.Logger.FormatPointer(functionPointer));
-
             if (functionPointer == IntPtr.Zero)
             {
                 LastError = "DMManager: geInitSynthesizer method missing.";
-                Logger.Logger.Error("LoaderBackend", LastError);
                 return false;
             }
 
-            InitSynthConfig synthConfig = ResolveSynthConfig(SynthMode);
-            AudioPathConfig = synthConfig.Config;
-
-            Logger.Logger.Info("LoaderBackend", "SynthMode=" + SynthMode + ", SampleRate=" + synthConfig.SampleRate + ", Config=0x" + synthConfig.Config.ToString("X2"));
-
             InitSynthesizerDelegate initialize = Marshal.GetDelegateForFunctionPointer<InitSynthesizerDelegate>(functionPointer);
+
+            InitSynthConfig synthConfig = ResolveSynthConfig(SynthMode, 0);
+
+            Logger.Logger.Info(
+                "LoaderBackend",
+                "Initializing synthesizer with fixed mode mapping. SynthMode=" + SynthMode +
+                ", SampleRate=" + synthConfig.SampleRate +
+                ", Config=0x" + synthConfig.Config.ToString("X2"));
+
             byte result = initialize(DriverInstance, ref synthConfig);
 
-            Logger.Logger.Info("LoaderBackend", "geInitSynthesizer result=" + result + ", DriverInstance=" + Logger.Logger.FormatPointer(DriverInstance));
+            Logger.Logger.Info("LoaderBackend", "geInitSynthesizer result=" + result);
 
             if (result == 0)
             {
-                LastError = "DMManager: geInitSynthesizer failed.";
-                Logger.Logger.Error("LoaderBackend", LastError);
+                LastError =
+                    "DMManager: geInitSynthesizer failed for fixed mode mapping. " +
+                    "SynthMode=" + SynthMode +
+                    ", SampleRate=" + synthConfig.SampleRate +
+                    ", Config=0x" + synthConfig.Config.ToString("X2") + ".";
                 return false;
             }
 
-            Logger.Logger.Info("LoaderBackend", "InitializeSynthesizer succeeded.");
+            AudioPathConfig = synthConfig.Config;
             return true;
         }
 
@@ -271,7 +276,7 @@ namespace DirectMusicConverter.Classes
 
             if (MethodTable != IntPtr.Zero && DriverInstance != IntPtr.Zero)
             {
-                Logger.Logger.Info("LoaderBackend", "Calling native shutdown chain for DriverInstance=" + Logger.Logger.FormatPointer(DriverInstance));
+                Logger.Logger.Warning("LoaderBackend", "Calling experimental native shutdown chain for DriverInstance=" + Logger.Logger.FormatPointer(DriverInstance) + ". Offsets +0x30, +0x14 and +0x0C are still not RE-confirmed.");
                 CallVoidWithInstance(MethodReleaseType2Object);
                 CallVoidWithInstance(MethodShutdownLoader);
                 CallVoidWithInstance(MethodShutdownDriver);
@@ -486,13 +491,28 @@ namespace DirectMusicConverter.Classes
             return Marshal.ReadIntPtr(MethodTable, offset);
         }
 
-        private static InitSynthConfig ResolveSynthConfig(int synthMode)
+        private static InitSynthConfig ResolveSynthConfig(int synthMode, int fallbackSampleRate)
         {
             return synthMode switch
             {
-                1 => new InitSynthConfig { Reserved00 = 0, SampleRate = 22050, Config = 0x10 },
-                2 => new InitSynthConfig { Reserved00 = 0, SampleRate = 11025, Config = 0x08 },
-                _ => new InitSynthConfig { Reserved00 = 0, SampleRate = 44100, Config = 0x40 },
+                1 => new InitSynthConfig
+                {
+                    Reserved00 = 0,
+                    SampleRate = 22050,
+                    Config = 0x10,
+                },
+                2 => new InitSynthConfig
+                {
+                    Reserved00 = 0,
+                    SampleRate = 11025,
+                    Config = 0x08,
+                },
+                _ => new InitSynthConfig
+                {
+                    Reserved00 = 0,
+                    SampleRate = 44100,
+                    Config = 0x40,
+                },
             };
         }
 

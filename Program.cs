@@ -38,12 +38,24 @@ namespace DirectMusicConverter
                 return 2;
             }
 
-            using Gedx8MusicDriverLoaderBackend loaderBackend = new(driverDirectory, synthMode);
+            bool sampleRateDetected = AudioDeviceSampleRateDetector.TryGetDefaultRenderSampleRate(out int detectedSampleRate, out string? sampleRateDetectionError);
+            if (sampleRateDetected)
+            {
+                Logger.Logger.Info("Program", "Detected default render sample rate=" + detectedSampleRate + " Hz.");
+            }
+            else
+            {
+                Logger.Logger.Warning("Program", "Default render sample rate detection failed. Falling back to synth-mode defaults. Error='" + (sampleRateDetectionError ?? "<null>") + "'");
+                detectedSampleRate = 0;
+            }
+
+            using Gedx8MusicDriverLoaderBackend loaderBackend = new(driverDirectory, synthMode, detectedSampleRate);
             loaderBackend.SetSearchDirectory(dmRootPath);
 
             Console.WriteLine("Driver dir      : " + driverDirectory);
             Console.WriteLine("Synth mode      : " + synthMode);
             Console.WriteLine("Master volume   : " + masterVolume);
+            Console.WriteLine("Sample rate     : " + (sampleRateDetected ? detectedSampleRate + " Hz (device default)" : "auto fallback (synth-mode defaults)"));
             Console.WriteLine("Log file        : " + logPath);
 
             Logger.Logger.Info("Program", "Creating loader backend.");
@@ -94,7 +106,6 @@ namespace DirectMusicConverter
             Console.ReadLine();
 
             Logger.Logger.Info("Program", "Stopping playback.");
-            manager.ResetAllSegmentPlaybackStates(playbackBackend);
             manager.Shutdown(playbackBackend);
             Logger.Logger.Info("Program", "Shutdown complete.");
             return 0;

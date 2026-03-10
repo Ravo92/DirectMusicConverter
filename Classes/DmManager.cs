@@ -43,36 +43,9 @@ namespace DirectMusicConverter.Classes
 
         internal string? LastError => _lastError;
 
-        internal object? Audiopath => _audiopath;
-
-        internal int CurrentType => _currentType;
-
-        internal int CurrentVariant => _currentVariant;
-
-        internal uint SpecialDeadline => _specialDeadline;
-
-        internal bool SpecialVolumeApplied => _specialVolumeApplied;
-
-        internal IReadOnlyList<DmSegmentSlot> Slots => _slots;
-
         internal void MarkInitialized()
         {
             _isInitialized = true;
-        }
-
-        internal void SetRootPath(string? rootPath)
-        {
-            _rootPath = rootPath;
-        }
-
-        internal void SetMusicMode(int musicMode)
-        {
-            _musicMode = musicMode;
-        }
-
-        internal void SetAudiopathConfig(int audiopathConfig)
-        {
-            _audiopathConfig = audiopathConfig;
         }
 
         internal string? ResolveSegmentName(int type, int variant)
@@ -176,16 +149,16 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
-            if (!backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out byte state))
+            if (!backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out byte stateBeforeStart))
             {
                 _lastError = "DMManager: geGetPlaybackStateOfSegment failed.";
                 Logger.Logger.Error("DmManager", _lastError);
                 return false;
             }
 
-            Logger.Logger.Info("DmManager", "Playback state for segment '" + (slot.SegmentName ?? "<null>") + "' => " + state);
+            Logger.Logger.Info("DmManager", "Playback state before start for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateBeforeStart);
 
-            if (state == 0)
+            if (stateBeforeStart == 0)
             {
                 bool started = backend.StartSegmentPlayback(_audiopath, slot.SegmentHandle, StartFlags, StartTime, RepeatCount, StartUnknown);
                 Logger.Logger.Info("DmManager", "StartSegmentPlayback returned " + started);
@@ -195,6 +168,42 @@ namespace DirectMusicConverter.Classes
                     _lastError = "DMManager: geStartSegmentPlayback failed.";
                     Logger.Logger.Error("DmManager", _lastError);
                     return false;
+                }
+
+                byte stateAfterStart = 0;
+                bool stateRead = false;
+                for (int poll = 0; poll < 10; poll++)
+                {
+                    System.Threading.Thread.Sleep(5);
+
+                    if (!backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out stateAfterStart))
+                    {
+                        _lastError = "DMManager: geGetPlaybackStateOfSegment failed after start.";
+                        Logger.Logger.Error("DmManager", _lastError);
+                        return false;
+                    }
+
+                    stateRead = true;
+                    Logger.Logger.Info("DmManager", "Playback state poll " + (poll + 1) + "/10 for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateAfterStart);
+
+                    if (stateAfterStart != 0)
+                    {
+                        break;
+                    }
+                }
+
+                if (!stateRead)
+                {
+                    _lastError = "DMManager: playback state could not be read after start.";
+                    Logger.Logger.Error("DmManager", _lastError);
+                    return false;
+                }
+
+                Logger.Logger.Info("DmManager", "Playback state after start for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateAfterStart);
+
+                if (stateAfterStart == 0)
+                {
+                    Logger.Logger.Warning("DmManager", "DMManager: segment start call returned success, but playback state stayed at 0.");
                 }
             }
 
@@ -215,7 +224,9 @@ namespace DirectMusicConverter.Classes
                     continue;
                 }
 
-                backend.ResetSegmentPlayback(slot.SegmentHandle, 0);
+                // The +0x58 wrapper takes a pointer argument, not the previously assumed integer-reset call.
+                // Until the exact native semantics are fully confirmed, shutdown should not issue this call.
+
             }
 
             _currentType = 0;
@@ -292,10 +303,8 @@ namespace DirectMusicConverter.Classes
                 }
             }
 
-            Logger.Logger.Info("DmManager", "Shutting down playback backend.");
+            Logger.Logger.Info("DmManager", "Shutting down playback backend via ShutdownPerformance().");
             backend.ShutdownPerformance();
-            backend.ShutdownLoader();
-            backend.ShutdownDriver();
 
             _audiopath = null;
             _currentType = 0;
@@ -406,6 +415,18 @@ namespace DirectMusicConverter.Classes
             {
                 _lastError = "DMManager: geActivateAudiopath failed.";
                 Logger.Logger.Error("DmManager", _lastError);
+                backend.DestroyAudiopath(audiopath);
+                return false;
+            }
+
+            bool volumeSet = backend.SetVolumeOfAudiopath(audiopath, 0, 0);
+            Logger.Logger.Info("DmManager", "SetVolumeOfAudiopath(normalize) returned " + volumeSet + ", volume=0, ramp=0");
+
+            if (!volumeSet)
+            {
+                _lastError = "DMManager: geSetVolumeOfAudiopath failed.";
+                Logger.Logger.Error("DmManager", _lastError);
+                backend.ActivateAudiopath(audiopath, false);
                 backend.DestroyAudiopath(audiopath);
                 return false;
             }
