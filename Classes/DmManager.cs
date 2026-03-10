@@ -172,9 +172,9 @@ namespace DirectMusicConverter.Classes
 
                 byte stateAfterStart = 0;
                 bool stateRead = false;
-                for (int poll = 0; poll < 10; poll++)
+                for (int poll = 0; poll < 40; poll++)
                 {
-                    System.Threading.Thread.Sleep(5);
+                    Thread.Sleep(25);
 
                     if (!backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out stateAfterStart))
                     {
@@ -184,7 +184,7 @@ namespace DirectMusicConverter.Classes
                     }
 
                     stateRead = true;
-                    Logger.Logger.Info("DmManager", "Playback state poll " + (poll + 1) + "/10 for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateAfterStart);
+                    Logger.Logger.Info("DmManager", "Playback state poll " + (poll + 1) + "/40 for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateAfterStart);
 
                     if (stateAfterStart != 0)
                     {
@@ -342,6 +342,9 @@ namespace DirectMusicConverter.Classes
                 return null;
             }
 
+            Logger.Logger.Info("DmManager", "Waiting 250 ms after geLoadCachedObject to let native segment dependencies settle.");
+            System.Threading.Thread.Sleep(250);
+
             freeSlot.Clear();
             freeSlot.IsUsed = true;
             freeSlot.Type = type;
@@ -401,6 +404,9 @@ namespace DirectMusicConverter.Classes
                 backend.DestroyAudiopath(audiopath);
                 return false;
             }
+
+            Logger.Logger.Info("DmManager", "Waiting 100 ms after geActivateAudiopath to let native audiopath settle.");
+            Thread.Sleep(100);
 
             bool volumeSet = backend.SetVolumeOfAudiopath(audiopath, 0, 0);
             Logger.Logger.Info("DmManager", "SetVolumeOfAudiopath(normalize) returned " + volumeSet + ", volume=0, ramp=0");

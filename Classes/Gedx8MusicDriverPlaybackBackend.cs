@@ -109,6 +109,7 @@ namespace DirectMusicConverter.Classes
                 IntPtr descriptorFileName = Marshal.ReadIntPtr(nativeRecordPointer, 0x08);
 
                 Logger.Logger.Info("PlaybackBackend", "Record fields after load: +00=" + Logger.Logger.FormatPointer(wrapperPointer) + ", +04=" + Logger.Logger.FormatPointer(descriptorKind) + ", +08=" + Logger.Logger.FormatPointer(descriptorFileName));
+                DumpSegmentWrapper("PlaybackBackend", wrapperPointer);
 
                 if (wrapperPointer == IntPtr.Zero)
                 {
@@ -567,6 +568,30 @@ namespace DirectMusicConverter.Classes
             }
 
             return nativeVolume;
+        }
+
+        private static void DumpSegmentWrapper(string scope, IntPtr wrapperPointer)
+        {
+            if (wrapperPointer == IntPtr.Zero)
+            {
+                Logger.Logger.Warning(scope, "Segment wrapper is null.");
+                return;
+            }
+
+            int field04 = Marshal.ReadInt32(wrapperPointer, 0x04);
+            int field08 = Marshal.ReadInt32(wrapperPointer, 0x08);
+            IntPtr field0C = Marshal.ReadIntPtr(wrapperPointer, 0x0C);
+            IntPtr field10 = Marshal.ReadIntPtr(wrapperPointer, 0x10);
+
+            Logger.Logger.Info(
+                scope,
+                "Segment wrapper fields: self=" + Logger.Logger.FormatPointer(wrapperPointer) +
+                ", +04=" + field04 +
+                ", +08=0x" + field08.ToString("X8") +
+                ", +0C=" + Logger.Logger.FormatPointer(field0C) +
+                ", +10=" + Logger.Logger.FormatPointer(field10));
+
+            Logger.Logger.DumpBytes(scope, "Segment wrapper bytes", wrapperPointer, 0x20);
         }
 
         private static string EnsureTrailingSlash(string path)
