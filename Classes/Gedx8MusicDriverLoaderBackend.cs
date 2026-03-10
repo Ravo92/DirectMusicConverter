@@ -67,68 +67,93 @@ namespace DirectMusicConverter.Classes
 
         public bool CreateLoaderContext()
         {
+            Logger.Logger.Info("LoaderBackend", "CreateLoaderContext entered.");
+
             if (!EnsureDriverLoaded())
             {
+                Logger.Logger.Error("LoaderBackend", "CreateLoaderContext aborted because EnsureDriverLoaded failed. LastError='" + (LastError ?? "<null>") + "'");
                 return false;
             }
 
             if (_loaderPrepared)
             {
+                Logger.Logger.Info("LoaderBackend", "Loader context already prepared.");
                 return true;
             }
 
             if (string.IsNullOrWhiteSpace(SearchDirectory))
             {
                 LastError = "DMManager: loader search directory missing.";
+                Logger.Logger.Error("LoaderBackend", LastError);
                 return false;
             }
 
+            Logger.Logger.Info("LoaderBackend", "SearchDirectory='" + SearchDirectory + "'");
+            Logger.Logger.Info("LoaderBackend", "CLSID_DirectMusicLoader=" + Logger.Logger.FormatGuid(ClsidDirectMusicLoader));
+            Logger.Logger.Info("LoaderBackend", "IID_IDirectMusicLoader8=" + Logger.Logger.FormatGuid(IidDirectMusicLoader8));
+            Logger.Logger.Info("LoaderBackend", "GUID_DirectMusicAllTypes=" + Logger.Logger.FormatGuid(GuidDirectMusicAllTypes));
+
             int coInitializeResult = NativeMethods.CoInitialize(IntPtr.Zero);
+            Logger.Logger.Info("LoaderBackend", "CoInitialize returned " + Logger.Logger.FormatHResult(coInitializeResult));
 
             bool ownsComInitialization = coInitializeResult == 0 || coInitializeResult == 1;
             bool comAlreadyInitializedWithDifferentMode = coInitializeResult == unchecked((int)0x80010106);
 
             if (!ownsComInitialization && !comAlreadyInitializedWithDifferentMode)
             {
-                LastError = "DMManager: CoInitialize failed. HRESULT=0x" + coInitializeResult.ToString("X8") + ".";
+                LastError = "DMManager: CoInitialize failed. HRESULT=" + Logger.Logger.FormatHResult(coInitializeResult) + ".";
+                Logger.Logger.Error("LoaderBackend", LastError);
                 return false;
             }
 
             _comInitialized = ownsComInitialization;
+            Logger.Logger.Info("LoaderBackend", "_comInitialized=" + _comInitialized);
 
             try
             {
                 Type? loaderType = Type.GetTypeFromCLSID(ClsidDirectMusicLoader, throwOnError: false);
+                Logger.Logger.Info("LoaderBackend", "Type.GetTypeFromCLSID => " + (loaderType == null ? "<null>" : loaderType.FullName ?? loaderType.Name));
+
                 if (loaderType == null)
                 {
                     LastError = "DMManager: DirectMusic loader COM class unavailable.";
+                    Logger.Logger.Error("LoaderBackend", LastError);
                     CleanupComIfOwned();
                     return false;
                 }
 
                 object? comObject = Activator.CreateInstance(loaderType);
+                Logger.Logger.Info("LoaderBackend", "Activator.CreateInstance => " + (comObject == null ? "<null>" : comObject.GetType().FullName ?? comObject.GetType().Name));
+
                 if (comObject == null)
                 {
                     LastError = "DMManager: failed to create DirectMusic loader COM object.";
+                    Logger.Logger.Error("LoaderBackend", LastError);
                     CleanupComIfOwned();
                     return false;
                 }
 
                 IDirectMusicLoader8? loaderComObject = comObject as IDirectMusicLoader8;
+                Logger.Logger.Info("LoaderBackend", "Direct cast to IDirectMusicLoader8 => " + (loaderComObject != null));
+
                 if (loaderComObject == null)
                 {
                     try
                     {
                         IntPtr iunknownPointer = Marshal.GetIUnknownForObject(comObject);
+                        Logger.Logger.Info("LoaderBackend", "IUnknown pointer=" + Logger.Logger.FormatPointer(iunknownPointer));
+
                         try
                         {
                             Guid iidDirectMusicLoader8 = IidDirectMusicLoader8;
                             int hr = Marshal.QueryInterface(iunknownPointer, in iidDirectMusicLoader8, out IntPtr interfacePointer);
+                            Logger.Logger.Info("LoaderBackend", "QueryInterface(IDirectMusicLoader8) hr=" + Logger.Logger.FormatHResult(hr) + ", interfacePointer=" + Logger.Logger.FormatPointer(interfacePointer));
                             Marshal.ThrowExceptionForHR(hr);
 
                             if (interfacePointer == IntPtr.Zero)
                             {
                                 LastError = "DMManager: QueryInterface(IDirectMusicLoader8) returned null.";
+                                Logger.Logger.Error("LoaderBackend", LastError);
                                 CleanupComIfOwned();
                                 return false;
                             }
@@ -136,20 +161,24 @@ namespace DirectMusicConverter.Classes
                             try
                             {
                                 loaderComObject = (IDirectMusicLoader8)Marshal.GetObjectForIUnknown(interfacePointer);
+                                Logger.Logger.Info("LoaderBackend", "Marshal.GetObjectForIUnknown succeeded.");
                             }
                             finally
                             {
-                                Marshal.Release(interfacePointer);
+                                int releaseResult = Marshal.Release(interfacePointer);
+                                Logger.Logger.Debug("LoaderBackend", "Release(interfacePointer) => refCount=" + releaseResult);
                             }
                         }
                         finally
                         {
-                            Marshal.Release(iunknownPointer);
+                            int releaseResult = Marshal.Release(iunknownPointer);
+                            Logger.Logger.Debug("LoaderBackend", "Release(iunknownPointer) => refCount=" + releaseResult);
                         }
                     }
                     catch (Exception ex)
                     {
                         LastError = "DMManager: DirectMusic loader QueryInterface failed. " + ex.Message;
+                        Logger.Logger.Error("LoaderBackend", LastError, ex);
                         CleanupComIfOwned();
                         return false;
                     }
@@ -158,21 +187,32 @@ namespace DirectMusicConverter.Classes
                 if (loaderComObject == null)
                 {
                     LastError = "DMManager: IDirectMusicLoader8 unavailable.";
+                    Logger.Logger.Error("LoaderBackend", LastError);
                     CleanupComIfOwned();
                     return false;
                 }
 
                 Guid directMusicAllTypes = GuidDirectMusicAllTypes;
                 int setSearchDirectoryResult = loaderComObject.SetSearchDirectory(ref directMusicAllTypes, SearchDirectory, 0);
+                Logger.Logger.Info("LoaderBackend", "SetSearchDirectory hr=" + Logger.Logger.FormatHResult(setSearchDirectoryResult) + ", path='" + SearchDirectory + "'");
                 Marshal.ThrowExceptionForHR(setSearchDirectoryResult);
 
                 _loaderComObject = loaderComObject;
                 _loaderPrepared = true;
+                Logger.Logger.Info("LoaderBackend", "CreateLoaderContext succeeded.");
                 return true;
             }
             catch (COMException ex)
             {
                 LastError = "DMManager: loader setup failed. HRESULT=0x" + ex.ErrorCode.ToString("X8") + ".";
+                Logger.Logger.Error("LoaderBackend", LastError, ex);
+                CleanupComIfOwned();
+                return false;
+            }
+            catch (Exception ex)
+            {
+                LastError = "DMManager: loader setup failed. " + ex.Message;
+                Logger.Logger.Error("LoaderBackend", LastError, ex);
                 CleanupComIfOwned();
                 return false;
             }
@@ -180,41 +220,58 @@ namespace DirectMusicConverter.Classes
 
         public bool InitializeSynthesizer()
         {
+            Logger.Logger.Info("LoaderBackend", "InitializeSynthesizer entered.");
+
             if (!EnsureDriverLoaded())
             {
+                Logger.Logger.Error("LoaderBackend", "InitializeSynthesizer aborted because EnsureDriverLoaded failed. LastError='" + (LastError ?? "<null>") + "'");
                 return false;
             }
 
             IntPtr functionPointer = ReadMethodPointer(MethodInitSynthesizer);
+            Logger.Logger.Info("LoaderBackend", "MethodInitSynthesizer pointer=" + Logger.Logger.FormatPointer(functionPointer));
+
             if (functionPointer == IntPtr.Zero)
             {
                 LastError = "DMManager: geInitSynthesizer method missing.";
+                Logger.Logger.Error("LoaderBackend", LastError);
                 return false;
             }
 
             InitSynthConfig synthConfig = ResolveSynthConfig(SynthMode);
             AudioPathConfig = synthConfig.Config;
 
+            Logger.Logger.Info("LoaderBackend", "SynthMode=" + SynthMode + ", SampleRate=" + synthConfig.SampleRate + ", Config=0x" + synthConfig.Config.ToString("X2"));
+
             InitSynthesizerDelegate initialize = Marshal.GetDelegateForFunctionPointer<InitSynthesizerDelegate>(functionPointer);
             byte result = initialize(DriverInstance, ref synthConfig);
+
+            Logger.Logger.Info("LoaderBackend", "geInitSynthesizer result=" + result + ", DriverInstance=" + Logger.Logger.FormatPointer(DriverInstance));
+
             if (result == 0)
             {
                 LastError = "DMManager: geInitSynthesizer failed.";
+                Logger.Logger.Error("LoaderBackend", LastError);
                 return false;
             }
 
+            Logger.Logger.Info("LoaderBackend", "InitializeSynthesizer succeeded.");
             return true;
         }
 
         public void Shutdown()
         {
+            Logger.Logger.Info("LoaderBackend", "Shutdown entered. _disposed=" + _disposed);
+
             if (_disposed)
             {
+                Logger.Logger.Debug("LoaderBackend", "Shutdown skipped because backend is already disposed.");
                 return;
             }
 
             if (MethodTable != IntPtr.Zero && DriverInstance != IntPtr.Zero)
             {
+                Logger.Logger.Info("LoaderBackend", "Calling native shutdown chain for DriverInstance=" + Logger.Logger.FormatPointer(DriverInstance));
                 CallVoidWithInstance(MethodReleaseType2Object);
                 CallVoidWithInstance(MethodShutdownLoader);
                 CallVoidWithInstance(MethodShutdownDriver);
@@ -225,16 +282,20 @@ namespace DirectMusicConverter.Classes
             if (MethodTable != IntPtr.Zero)
             {
                 IntPtr releasePointer = ReadMethodPointer(MethodReleaseInterface);
+                Logger.Logger.Info("LoaderBackend", "ReleaseInterface pointer=" + Logger.Logger.FormatPointer(releasePointer));
+
                 if (releasePointer != IntPtr.Zero)
                 {
                     ReleaseInterfaceDelegate release = Marshal.GetDelegateForFunctionPointer<ReleaseInterfaceDelegate>(releasePointer);
                     release();
+                    Logger.Logger.Info("LoaderBackend", "ReleaseInterface called.");
                 }
             }
 
             if (LibraryHandle != IntPtr.Zero)
             {
-                NativeMethods.FreeLibrary(LibraryHandle);
+                bool freed = NativeMethods.FreeLibrary(LibraryHandle);
+                Logger.Logger.Info("LoaderBackend", "FreeLibrary(" + Logger.Logger.FormatPointer(LibraryHandle) + ") => " + freed);
             }
 
             LibraryHandle = IntPtr.Zero;
@@ -244,6 +305,8 @@ namespace DirectMusicConverter.Classes
             _driverLoaded = false;
             _loaderPrepared = false;
             _disposed = true;
+
+            Logger.Logger.Info("LoaderBackend", "Shutdown finished.");
         }
 
         public void Dispose()
@@ -269,14 +332,18 @@ namespace DirectMusicConverter.Classes
 
         private bool EnsureDriverLoaded()
         {
+            Logger.Logger.Debug("LoaderBackend", "EnsureDriverLoaded entered. _disposed=" + _disposed + ", _driverLoaded=" + _driverLoaded);
+
             if (_disposed)
             {
                 LastError = "DMManager: loader backend already disposed.";
+                Logger.Logger.Error("LoaderBackend", LastError);
                 return false;
             }
 
             if (_driverLoaded)
             {
+                Logger.Logger.Debug("LoaderBackend", "Driver already loaded.");
                 return true;
             }
 
@@ -290,19 +357,27 @@ namespace DirectMusicConverter.Classes
                 }
             }
 
+            Logger.Logger.Info("LoaderBackend", "Loading driver DLL from '" + libraryPath + "'");
+
             LibraryHandle = NativeMethods.LoadLibrary(libraryPath);
+            Logger.Logger.Info("LoaderBackend", "LoadLibrary => " + Logger.Logger.FormatPointer(LibraryHandle));
+
             if (LibraryHandle == IntPtr.Zero)
             {
                 int error = Marshal.GetLastWin32Error();
                 LastError = "DMManager: LoadLibrary failed. Path='" + libraryPath + "', Win32Error=" + error;
+                Logger.Logger.Error("LoaderBackend", LastError);
                 return false;
             }
 
             IntPtr getInterfacePointer = NativeMethods.GetProcAddress(LibraryHandle, DriverExportName);
+            Logger.Logger.Info("LoaderBackend", "GetProcAddress('" + DriverExportName + "') => " + Logger.Logger.FormatPointer(getInterfacePointer));
+
             if (getInterfacePointer == IntPtr.Zero)
             {
                 int error = Marshal.GetLastWin32Error();
                 LastError = "DMManager: GetProcAddress failed. Export='" + DriverExportName + "', Win32Error=" + error;
+                Logger.Logger.Error("LoaderBackend", LastError);
                 NativeMethods.FreeLibrary(LibraryHandle);
                 LibraryHandle = IntPtr.Zero;
                 return false;
@@ -310,9 +385,12 @@ namespace DirectMusicConverter.Classes
 
             GetInterface2Delegate getInterface2 = Marshal.GetDelegateForFunctionPointer<GetInterface2Delegate>(getInterfacePointer);
             byte ok = getInterface2(out IntPtr interfaceObject);
+            Logger.Logger.Info("LoaderBackend", "GetInterface2 => ok=" + ok + ", interfaceObject=" + Logger.Logger.FormatPointer(interfaceObject));
+
             if (ok == 0 || interfaceObject == IntPtr.Zero)
             {
                 LastError = "DMManager: GetInterface2 returned null interface object.";
+                Logger.Logger.Error("LoaderBackend", LastError);
                 NativeMethods.FreeLibrary(LibraryHandle);
                 LibraryHandle = IntPtr.Zero;
                 return false;
@@ -320,26 +398,43 @@ namespace DirectMusicConverter.Classes
 
             InterfaceObject = interfaceObject;
             MethodTable = Marshal.ReadIntPtr(InterfaceObject, 4);
+
+            Logger.Logger.Info("LoaderBackend", "InterfaceObject=" + Logger.Logger.FormatPointer(InterfaceObject) + ", MethodTable=" + Logger.Logger.FormatPointer(MethodTable));
+
             if (MethodTable == IntPtr.Zero)
             {
                 LastError = "DMManager: interface object has null method table.";
+                Logger.Logger.Error("LoaderBackend", LastError);
                 NativeMethods.FreeLibrary(LibraryHandle);
                 LibraryHandle = IntPtr.Zero;
                 InterfaceObject = IntPtr.Zero;
                 return false;
             }
 
+            Logger.Logger.Info("LoaderBackend", "Method +00=" + Logger.Logger.FormatPointer(ReadMethodPointer(MethodBootstrap)));
+            Logger.Logger.Info("LoaderBackend", "Method +04=" + Logger.Logger.FormatPointer(ReadMethodPointer(MethodReleaseInterface)));
+            Logger.Logger.Info("LoaderBackend", "Method +08=" + Logger.Logger.FormatPointer(ReadMethodPointer(MethodCreateInstance)));
+            Logger.Logger.Info("LoaderBackend", "Method +0C=" + Logger.Logger.FormatPointer(ReadMethodPointer(MethodShutdownDriver)));
+            Logger.Logger.Info("LoaderBackend", "Method +10=" + Logger.Logger.FormatPointer(ReadMethodPointer(MethodInitSynthesizer)));
+            Logger.Logger.Info("LoaderBackend", "Method +14=" + Logger.Logger.FormatPointer(ReadMethodPointer(MethodShutdownLoader)));
+            Logger.Logger.Info("LoaderBackend", "Method +30=" + Logger.Logger.FormatPointer(ReadMethodPointer(MethodReleaseType2Object)));
+
             IntPtr bootstrapPointer = ReadMethodPointer(MethodBootstrap);
             if (bootstrapPointer != IntPtr.Zero)
             {
+                Logger.Logger.Info("LoaderBackend", "Calling bootstrap.");
                 VoidNoArgsDelegate bootstrap = Marshal.GetDelegateForFunctionPointer<VoidNoArgsDelegate>(bootstrapPointer);
                 bootstrap();
+                Logger.Logger.Info("LoaderBackend", "Bootstrap returned.");
             }
 
             IntPtr createInstancePointer = ReadMethodPointer(MethodCreateInstance);
+            Logger.Logger.Info("LoaderBackend", "CreateInstance pointer=" + Logger.Logger.FormatPointer(createInstancePointer));
+
             if (createInstancePointer == IntPtr.Zero)
             {
                 LastError = "DMManager: geCreateInstance method missing.";
+                Logger.Logger.Error("LoaderBackend", LastError);
                 NativeMethods.FreeLibrary(LibraryHandle);
                 LibraryHandle = IntPtr.Zero;
                 InterfaceObject = IntPtr.Zero;
@@ -349,9 +444,13 @@ namespace DirectMusicConverter.Classes
 
             CreateInstanceDelegate createInstance = Marshal.GetDelegateForFunctionPointer<CreateInstanceDelegate>(createInstancePointer);
             DriverInstance = createInstance();
+
+            Logger.Logger.Info("LoaderBackend", "DriverInstance=" + Logger.Logger.FormatPointer(DriverInstance));
+
             if (DriverInstance == IntPtr.Zero)
             {
                 LastError = "DMManager: geCreateInstance failed.";
+                Logger.Logger.Error("LoaderBackend", LastError);
                 NativeMethods.FreeLibrary(LibraryHandle);
                 LibraryHandle = IntPtr.Zero;
                 InterfaceObject = IntPtr.Zero;
@@ -361,6 +460,7 @@ namespace DirectMusicConverter.Classes
 
             _driverLoaded = true;
             _disposed = false;
+            Logger.Logger.Info("LoaderBackend", "EnsureDriverLoaded succeeded.");
             return true;
         }
 

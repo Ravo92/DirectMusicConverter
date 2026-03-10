@@ -31,10 +31,15 @@ namespace DirectMusicConverter.Classes
             segmentHandle = null;
             loadedState = null;
 
+            Logger.Logger.Info("PlaybackBackend", "LoadCachedObject entered. Type=0x" + obj.Type.ToString("X2") + ", Variant=" + obj.Variant + ", SegmentName='" + obj.SegmentName + "', RootPath='" + (rootPath ?? "<null>") + "'");
+
             string fullPath = BuildObjectPath(obj, rootPath);
+            Logger.Logger.Info("PlaybackBackend", "Resolved fullPath='" + fullPath + "'");
+
             if (string.IsNullOrWhiteSpace(fullPath))
             {
                 LastError = "DMManager: unresolved segment path.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
                 return false;
             }
 
@@ -43,47 +48,58 @@ namespace DirectMusicConverter.Classes
             if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(baseDirectory))
             {
                 LastError = "DMManager: segment path is incomplete.";
+                Logger.Logger.Error("PlaybackBackend", LastError + " fullPath='" + fullPath + "'");
                 return false;
             }
 
             string basePath = EnsureTrailingSlash(baseDirectory);
+            Logger.Logger.Info("PlaybackBackend", "fileName='" + fileName + "', basePath='" + basePath + "'");
+
             IntPtr fileNamePointer = Marshal.StringToHGlobalAnsi(fileName);
             IntPtr basePathPointer = Marshal.StringToHGlobalAnsi(basePath);
             IntPtr nativeRecordPointer = Marshal.AllocHGlobal(NativeSegmentRecordSize);
+
+            Logger.Logger.Info("PlaybackBackend", "Allocated native buffers: fileNamePointer=" + Logger.Logger.FormatPointer(fileNamePointer) + ", basePathPointer=" + Logger.Logger.FormatPointer(basePathPointer) + ", nativeRecordPointer=" + Logger.Logger.FormatPointer(nativeRecordPointer));
 
             try
             {
                 ZeroMemory(nativeRecordPointer, NativeSegmentRecordSize);
 
-                // Mirrors the in-game temporary record at DMManager slot+0x40:
-                // +0x00 = unknown / mode-specific field (zeroed before load)
-                // +0x04 = out wrapper pointer written by geLoadCachedObject
-                // +0x08 = ANSI segment file name pointer
-                // +0x0C = type
-                // +0x10 = variant
-                // +0x14 = trailing scratch / zero
                 Marshal.WriteIntPtr(nativeRecordPointer, 0x08, fileNamePointer);
                 Marshal.WriteInt32(nativeRecordPointer, 0x0C, obj.Type);
                 Marshal.WriteInt32(nativeRecordPointer, 0x10, obj.Variant);
 
+                Logger.Logger.DumpBytes("PlaybackBackend", "Native record before geLoadCachedObject", nativeRecordPointer, NativeSegmentRecordSize);
+
                 LoadCachedObjectDelegate? method = GetMethod<LoadCachedObjectDelegate>(MethodLoadCachedObject);
                 if (method == null)
                 {
+                    Logger.Logger.Error("PlaybackBackend", "LoadCachedObject method table lookup failed. LastError='" + (LastError ?? "<null>") + "'");
                     return false;
                 }
 
                 IntPtr wrapperOutputPointer = IntPtr.Add(nativeRecordPointer, 0x04);
+                Logger.Logger.Info("PlaybackBackend", "Calling geLoadCachedObject with DriverInstance=" + Logger.Logger.FormatPointer(_loaderBackend.DriverInstance) + ", mode=0, wrapperOutputPointer=" + Logger.Logger.FormatPointer(wrapperOutputPointer) + ", nativeRecordPointer=" + Logger.Logger.FormatPointer(nativeRecordPointer) + ", basePathPointer=" + Logger.Logger.FormatPointer(basePathPointer));
+
                 byte result = method(_loaderBackend.DriverInstance, 0, wrapperOutputPointer, nativeRecordPointer, basePathPointer);
+
+                Logger.Logger.Info("PlaybackBackend", "geLoadCachedObject result=" + result);
+                Logger.Logger.DumpBytes("PlaybackBackend", "Native record after geLoadCachedObject", nativeRecordPointer, NativeSegmentRecordSize);
+
                 if (result == 0)
                 {
                     LastError = "DMManager: geLoadCachedObject failed.";
+                    Logger.Logger.Error("PlaybackBackend", LastError);
                     return false;
                 }
 
                 IntPtr wrapperPointer = Marshal.ReadIntPtr(nativeRecordPointer, 0x04);
+                Logger.Logger.Info("PlaybackBackend", "WrapperPointer=" + Logger.Logger.FormatPointer(wrapperPointer));
+
                 if (wrapperPointer == IntPtr.Zero)
                 {
                     LastError = "DMManager: geLoadCachedObject returned null segment wrapper.";
+                    Logger.Logger.Error("PlaybackBackend", LastError);
                     return false;
                 }
 
@@ -91,25 +107,36 @@ namespace DirectMusicConverter.Classes
                 segmentHandle = nativeSegmentHandle;
                 loadedState = new NativeHandle(nativeRecordPointer);
 
+                Logger.Logger.Info("PlaybackBackend", "LoadCachedObject succeeded. SegmentHandle wrapper=" + Logger.Logger.FormatPointer(nativeSegmentHandle.WrapperPointer));
+
                 nativeRecordPointer = IntPtr.Zero;
                 fileNamePointer = IntPtr.Zero;
                 basePathPointer = IntPtr.Zero;
                 return true;
             }
+            catch (Exception ex)
+            {
+                LastError = "DMManager: LoadCachedObject threw exception. " + ex.Message;
+                Logger.Logger.Error("PlaybackBackend", LastError, ex);
+                return false;
+            }
             finally
             {
                 if (nativeRecordPointer != IntPtr.Zero)
                 {
+                    Logger.Logger.Debug("PlaybackBackend", "Freeing nativeRecordPointer=" + Logger.Logger.FormatPointer(nativeRecordPointer));
                     Marshal.FreeHGlobal(nativeRecordPointer);
                 }
 
                 if (fileNamePointer != IntPtr.Zero)
                 {
+                    Logger.Logger.Debug("PlaybackBackend", "Freeing fileNamePointer=" + Logger.Logger.FormatPointer(fileNamePointer));
                     Marshal.FreeHGlobal(fileNamePointer);
                 }
 
                 if (basePathPointer != IntPtr.Zero)
                 {
+                    Logger.Logger.Debug("PlaybackBackend", "Freeing basePathPointer=" + Logger.Logger.FormatPointer(basePathPointer));
                     Marshal.FreeHGlobal(basePathPointer);
                 }
             }
@@ -380,10 +407,20 @@ namespace DirectMusicConverter.Classes
 
         private T? GetMethod<T>(int offset) where T : class
         {
+            if (_loaderBackend.MethodTable == IntPtr.Zero)
+            {
+                LastError = "DMManager: loader method table is null.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
+                return null;
+            }
+
             IntPtr methodPointer = Marshal.ReadIntPtr(_loaderBackend.MethodTable, offset);
+            Logger.Logger.Debug("PlaybackBackend", "Method lookup offset=0x" + offset.ToString("X2") + " => " + Logger.Logger.FormatPointer(methodPointer));
+
             if (methodPointer == IntPtr.Zero)
             {
                 LastError = "DMManager: method table entry missing at 0x" + offset.ToString("X2") + ".";
+                Logger.Logger.Error("PlaybackBackend", LastError);
                 return null;
             }
 

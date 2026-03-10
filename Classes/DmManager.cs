@@ -135,56 +135,73 @@ namespace DirectMusicConverter.Classes
 
         internal bool StartOrSwitchSegment(int type, int variant, IDmObjectRepository repository, IDmPlaybackBackend backend, uint now)
         {
+            Logger.Logger.Info("DmManager", "StartOrSwitchSegment entered. Type=0x" + type.ToString("X2") + ", Variant=" + variant + ", Now=" + now);
+
             if (!_isInitialized)
             {
                 _lastError = "DMManager: not initialized.";
+                Logger.Logger.Error("DmManager", _lastError);
                 return false;
             }
 
             if (type < FirstPlayableType || type > LastPlayableType)
             {
                 _lastError = "DMManager: invalid music type.";
+                Logger.Logger.Error("DmManager", _lastError + " type=0x" + type.ToString("X2"));
                 return false;
             }
 
             if (IsSpecialType(type))
             {
+                Logger.Logger.Info("DmManager", "Type is special. Delegating to StartSpecialType.");
                 return StartSpecialType(type, backend, now);
             }
 
             DmSegmentSlot? slot = FindSlot(type, variant);
+            Logger.Logger.Info("DmManager", "Existing slot found=" + (slot != null));
+
             if (slot == null)
             {
                 slot = CreateSlot(type, variant, repository, backend);
                 if (slot == null)
                 {
+                    Logger.Logger.Error("DmManager", "CreateSlot failed. LastError='" + (_lastError ?? "<null>") + "'");
                     return false;
                 }
             }
 
             if (!EnsureAudiopath(slot, backend))
             {
+                Logger.Logger.Error("DmManager", "EnsureAudiopath failed. LastError='" + (_lastError ?? "<null>") + "'");
                 return false;
             }
 
             if (!backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out byte state))
             {
                 _lastError = "DMManager: geGetPlaybackStateOfSegment failed.";
+                Logger.Logger.Error("DmManager", _lastError);
                 return false;
             }
+
+            Logger.Logger.Info("DmManager", "Playback state for segment '" + (slot.SegmentName ?? "<null>") + "' => " + state);
 
             if (state == 0)
             {
                 bool started = backend.StartSegmentPlayback(_audiopath, slot.SegmentHandle, StartFlags, StartTime, RepeatCount, StartUnknown);
+                Logger.Logger.Info("DmManager", "StartSegmentPlayback returned " + started);
+
                 if (!started)
                 {
                     _lastError = "DMManager: geStartSegmentPlayback failed.";
+                    Logger.Logger.Error("DmManager", _lastError);
                     return false;
                 }
             }
 
             _currentType = type;
             _currentVariant = variant;
+
+            Logger.Logger.Info("DmManager", "StartOrSwitchSegment succeeded. CurrentType=0x" + _currentType.ToString("X2") + ", CurrentVariant=" + _currentVariant);
             return true;
         }
 
@@ -229,8 +246,11 @@ namespace DirectMusicConverter.Classes
 
         internal bool Shutdown(IDmPlaybackBackend backend)
         {
+            Logger.Logger.Info("DmManager", "Shutdown entered. _isInitialized=" + _isInitialized);
+
             if (!_isInitialized)
             {
+                Logger.Logger.Warning("DmManager", "Shutdown ignored because manager is not initialized.");
                 return false;
             }
 
@@ -244,9 +264,12 @@ namespace DirectMusicConverter.Classes
                     continue;
                 }
 
+                Logger.Logger.Info("DmManager", "Destroying slot[" + i + "] SegmentName='" + (slot.SegmentName ?? "<null>") + "'");
+
                 if (!backend.DestroySegment(slot.SegmentHandle))
                 {
                     _lastError = "DMManager: geDestroySegment failed.";
+                    Logger.Logger.Error("DmManager", _lastError);
                 }
 
                 slot.Clear();
@@ -254,17 +277,22 @@ namespace DirectMusicConverter.Classes
 
             if (_audiopath != null)
             {
+                Logger.Logger.Info("DmManager", "Destroying audiopath.");
+
                 if (!backend.ActivateAudiopath(_audiopath, false))
                 {
                     _lastError = "DMManager: geActivateAudiopath failed.";
+                    Logger.Logger.Error("DmManager", _lastError);
                 }
 
                 if (!backend.DestroyAudiopath(_audiopath))
                 {
                     _lastError = "DMManager: geDestroyAudiopath failed.";
+                    Logger.Logger.Error("DmManager", _lastError);
                 }
             }
 
+            Logger.Logger.Info("DmManager", "Shutting down playback backend.");
             backend.ShutdownPerformance();
             backend.ShutdownLoader();
             backend.ShutdownDriver();
@@ -275,15 +303,22 @@ namespace DirectMusicConverter.Classes
             _specialDeadline = 0;
             _specialVolumeApplied = false;
             _isInitialized = false;
+
+            Logger.Logger.Info("DmManager", "Shutdown finished.");
             return true;
         }
 
         private DmSegmentSlot? CreateSlot(int type, int variant, IDmObjectRepository repository, IDmPlaybackBackend backend)
         {
+            Logger.Logger.Info("DmManager", "CreateSlot entered. Type=0x" + type.ToString("X2") + ", Variant=" + variant);
+
             string? segmentName = ResolveSegmentName(type, variant);
+            Logger.Logger.Info("DmManager", "Resolved segmentName='" + (segmentName ?? "<null>") + "'");
+
             if (string.IsNullOrEmpty(segmentName))
             {
                 _lastError = "DMManager: unresolved segment name.";
+                Logger.Logger.Error("DmManager", _lastError);
                 return null;
             }
 
@@ -291,20 +326,27 @@ namespace DirectMusicConverter.Classes
             if (freeSlot == null)
             {
                 _lastError = "DMManager: No free segment entry found!";
+                Logger.Logger.Error("DmManager", _lastError);
                 return null;
             }
 
             IDmObject? dmObject = repository.LoadObject(type, variant, segmentName);
+            Logger.Logger.Info("DmManager", "Repository returned object=" + (dmObject != null));
+
             if (dmObject == null)
             {
                 _lastError = "DMManager: repository load failed.";
+                Logger.Logger.Error("DmManager", _lastError);
                 return null;
             }
 
             bool loaded = backend.LoadCachedObject(dmObject, _rootPath, out object? segmentHandle, out object? loadedState);
+            Logger.Logger.Info("DmManager", "LoadCachedObject returned " + loaded);
+
             if (!loaded)
             {
                 _lastError = "DMManager: geLoadCachedObject failed.";
+                Logger.Logger.Error("DmManager", _lastError);
                 return null;
             }
 
@@ -316,6 +358,8 @@ namespace DirectMusicConverter.Classes
             freeSlot.LoadedObject = dmObject;
             freeSlot.SegmentHandle = segmentHandle;
             freeSlot.Field08 = loadedState;
+
+            Logger.Logger.Info("DmManager", "CreateSlot succeeded for '" + segmentName + "'");
             return freeSlot;
         }
 
@@ -336,27 +380,38 @@ namespace DirectMusicConverter.Classes
         {
             if (_audiopath != null)
             {
+                Logger.Logger.Debug("DmManager", "Audiopath already exists.");
                 return true;
             }
 
             int audiopathMode = _musicMode == 2 ? 1 : 3;
             object? segmentForAudiopath = _musicMode == 2 ? null : slot.SegmentHandle;
+
+            Logger.Logger.Info("DmManager", "Creating audiopath. MusicMode=" + _musicMode + ", AudiopathMode=" + audiopathMode + ", Config=0x" + _audiopathConfig.ToString("X2") + ", SegmentName='" + (slot.SegmentName ?? "<null>") + "'");
+
             bool created = backend.CreateAudiopath(audiopathMode, _audiopathConfig, segmentForAudiopath, out object? audiopath);
+            Logger.Logger.Info("DmManager", "CreateAudiopath returned " + created);
+
             if (!created)
             {
                 _lastError = "DMManager: geCreateAudiopath failed.";
+                Logger.Logger.Error("DmManager", _lastError);
                 return false;
             }
 
             bool activated = backend.ActivateAudiopath(audiopath, true);
+            Logger.Logger.Info("DmManager", "ActivateAudiopath returned " + activated);
+
             if (!activated)
             {
                 _lastError = "DMManager: geActivateAudiopath failed.";
+                Logger.Logger.Error("DmManager", _lastError);
                 backend.DestroyAudiopath(audiopath);
                 return false;
             }
 
             _audiopath = audiopath;
+            Logger.Logger.Info("DmManager", "EnsureAudiopath succeeded.");
             return true;
         }
 
