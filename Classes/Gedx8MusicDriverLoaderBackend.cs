@@ -29,9 +29,8 @@ namespace DirectMusicConverter.Classes
         {
             DriverDirectory = driverDirectory;
             SynthMode = synthMode;
-            PreferredSampleRate = preferredSampleRate;
-            AudioPathConfig = ResolveSynthConfig(synthMode, preferredSampleRate).Config;
-            // _ = preferredSampleRate > 0 ? BuildSynthConfigForSampleRate(preferredSampleRate) : ResolveSynthConfig(SynthMode, PreferredSampleRate);
+            PreferredSampleRate = 0;
+            AudioPathConfig = ResolveSynthConfig(synthMode, 0).Config;
         }
 
         internal string? DriverDirectory { get; }
@@ -496,6 +495,8 @@ namespace DirectMusicConverter.Classes
 
         private static InitSynthConfig ResolveSynthConfig(int synthMode, int fallbackSampleRate)
         {
+            _ = fallbackSampleRate;
+
             return synthMode switch
             {
                 1 => new InitSynthConfig
@@ -513,7 +514,7 @@ namespace DirectMusicConverter.Classes
                 _ => new InitSynthConfig
                 {
                     Reserved00 = 0,
-                    SampleRate = fallbackSampleRate > 0 ? fallbackSampleRate : 44100,
+                    SampleRate = 44100,
                     Config = 0x40,
                 },
             };

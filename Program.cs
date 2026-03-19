@@ -22,6 +22,7 @@ namespace DirectMusicConverter
             Logger.Logger.Info("Program", "Startup");
             Logger.Logger.Info("Program", "Args: gameRoot='" + gameRoot + "', type=" + type + ", variant=" + variant + ", driverDirectory='" + driverDirectory + "', synthMode=" + synthMode + ", masterVolume=" + masterVolume);
             Logger.Logger.Info("Program", "Process bitness=" + (Environment.Is64BitProcess ? "x64" : "x86"));
+            Logger.Logger.Info("Program", "Using fixed synth-mode mapping. Device sample rate detection is disabled.");
 
             if (!Directory.Exists(gameRoot))
             {
@@ -38,24 +39,13 @@ namespace DirectMusicConverter
                 return 2;
             }
 
-            bool sampleRateDetected = AudioDeviceSampleRateDetector.TryGetDefaultRenderSampleRate(out int detectedSampleRate, out string? sampleRateDetectionError);
-            if (sampleRateDetected)
-            {
-                Logger.Logger.Info("Program", "Detected default render sample rate=" + detectedSampleRate + " Hz.");
-            }
-            else
-            {
-                Logger.Logger.Warning("Program", "Default render sample rate detection failed. Falling back to synth-mode defaults. Error='" + (sampleRateDetectionError ?? "<null>") + "'");
-                detectedSampleRate = 0;
-            }
-
-            using Gedx8MusicDriverLoaderBackend loaderBackend = new(driverDirectory, synthMode, detectedSampleRate);
+            using Gedx8MusicDriverLoaderBackend loaderBackend = new(driverDirectory, synthMode);
             loaderBackend.SetSearchDirectory(dmRootPath);
 
             Console.WriteLine("Driver dir      : " + driverDirectory);
             Console.WriteLine("Synth mode      : " + synthMode);
             Console.WriteLine("Master volume   : " + masterVolume);
-            Console.WriteLine("Sample rate     : " + (sampleRateDetected ? detectedSampleRate + " Hz (device default)" : "auto fallback (synth-mode defaults)"));
+            Console.WriteLine("Sample rate     : fixed synth-mode mapping");
             Console.WriteLine("Log file        : " + logPath);
 
             Logger.Logger.Info("Program", "Creating loader backend.");
