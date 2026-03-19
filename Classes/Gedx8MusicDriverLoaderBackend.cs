@@ -5,7 +5,7 @@ namespace DirectMusicConverter.Classes
 {
     internal sealed class Gedx8MusicDriverLoaderBackend : IDmLoaderBackend, IDisposable
     {
-        private const string DriverDllName = "gedx8musicdrv.dll";
+        private static readonly string DriverDllName = Environment.Is64BitProcess ? "Gedx8MusicDriver.dll" : "gedx8musicdrv.dll";
         private const string DriverExportName = "GetInterface2";
         private const int MethodBootstrap = 0x00;
         private const int MethodReleaseInterface = 0x04;
@@ -238,13 +238,15 @@ namespace DirectMusicConverter.Classes
 
             InitSynthesizerDelegate initialize = Marshal.GetDelegateForFunctionPointer<InitSynthesizerDelegate>(functionPointer);
 
-            InitSynthConfig synthConfig = ResolveSynthConfig(SynthMode, 0);
+            InitSynthConfig synthConfig = ResolveSynthConfig(SynthMode, PreferredSampleRate);
+            string sampleRateSource = SynthMode == 0 && PreferredSampleRate > 0 ? "system default render device" : "legacy synth-mode mapping";
 
             Logger.Logger.Info(
                 "LoaderBackend",
-                "Initializing synthesizer with fixed mode mapping. SynthMode=" + SynthMode +
+                "Initializing synthesizer. SynthMode=" + SynthMode +
                 ", SampleRate=" + synthConfig.SampleRate +
-                ", Config=0x" + synthConfig.Config.ToString("X2"));
+                ", Config=0x" + synthConfig.Config.ToString("X2") +
+                ", Source=" + sampleRateSource);
 
             byte result = initialize(DriverInstance, ref synthConfig);
 
@@ -253,10 +255,11 @@ namespace DirectMusicConverter.Classes
             if (result == 0)
             {
                 LastError =
-                    "DMManager: geInitSynthesizer failed for fixed mode mapping. " +
+                    "DMManager: geInitSynthesizer failed. " +
                     "SynthMode=" + SynthMode +
                     ", SampleRate=" + synthConfig.SampleRate +
-                    ", Config=0x" + synthConfig.Config.ToString("X2") + ".";
+                    ", Config=0x" + synthConfig.Config.ToString("X2") +
+                    ", Source=" + sampleRateSource + ".";
                 return false;
             }
 
@@ -510,7 +513,7 @@ namespace DirectMusicConverter.Classes
                 _ => new InitSynthConfig
                 {
                     Reserved00 = 0,
-                    SampleRate = 44100,
+                    SampleRate = fallbackSampleRate > 0 ? fallbackSampleRate : 44100,
                     Config = 0x40,
                 },
             };
