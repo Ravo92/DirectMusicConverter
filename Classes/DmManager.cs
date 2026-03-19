@@ -16,6 +16,9 @@ namespace DirectMusicConverter.Classes
         private const int FadeDownVolume = unchecked((int)0xFFFFF830);
         private const int FadeDownMilliseconds = 300;
 
+        private const int PlaybackStatePollCount = 40;
+        private const int PlaybackStatePollSleepMilliseconds = 20;
+
         private readonly DmSegmentSlot[] _slots;
         private string? _rootPath;
         private int _currentType;
@@ -149,22 +152,20 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
-            if (!backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out byte stateBeforeStart))
+            bool stateBeforeStartRead = backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out byte stateBeforeStart);
+            if (!stateBeforeStartRead)
             {
-                _lastError = "DMManager: geGetPlaybackStateOfSegment failed.";
-                Logger.Logger.Error("DmManager", _lastError);
-                return false;
+                Logger.Logger.Warning("DmManager", "Playback state before start could not be read for segment '" + (slot.SegmentName ?? "<null>") + "'. Start will still be attempted because +0x5C is not treated as a hard truth source.");
+                stateBeforeStart = 0;
+            }
+            else
+            {
+                Logger.Logger.Info("DmManager", "Playback state before start for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateBeforeStart);
             }
 
-            Logger.Logger.Info("DmManager", "Playback state before start for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateBeforeStart);
-
-            if (stateBeforeStart == 0)
+            if (!stateBeforeStartRead || stateBeforeStart == 0)
             {
-                // bool started = backend.StartSegmentPlayback(_audiopath, slot.SegmentHandle, StartFlags, StartTime, RepeatCount, StartUnknown);
-
-                backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out byte _);
-                bool started = backend.StartSegmentPlayback(_audiopath, slot.SegmentHandle, 0x2000, 0, -1, 1);
-
+                bool started = backend.StartSegmentPlayback(_audiopath, slot.SegmentHandle, StartFlags, StartTime, RepeatCount, StartUnknown);
                 Logger.Logger.Info("DmManager", "StartSegmentPlayback returned " + started);
 
                 if (!started)
@@ -175,38 +176,48 @@ namespace DirectMusicConverter.Classes
                 }
 
                 byte stateAfterStart = 0;
-                bool stateRead = false;
-                for (int poll = 0; poll < 40; poll++)
+                bool stateAfterStartReadAtLeastOnce = false;
+                bool stateAfterStartBecameNonZero = false;
+
+                for (int poll = 0; poll < PlaybackStatePollCount; poll++)
                 {
-                    if (!backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out stateAfterStart))
+                    bool stateRead = backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out stateAfterStart);
+                    if (!stateRead)
                     {
-                        _lastError = "DMManager: geGetPlaybackStateOfSegment failed after start.";
-                        Logger.Logger.Error("DmManager", _lastError);
-                        return false;
+                        Logger.Logger.Warning("DmManager", "Playback state poll " + (poll + 1) + "/" + PlaybackStatePollCount + " failed for segment '" + (slot.SegmentName ?? "<null>") + "'.");
+                    }
+                    else
+                    {
+                        stateAfterStartReadAtLeastOnce = true;
+                        Logger.Logger.Info("DmManager", "Playback state poll " + (poll + 1) + "/" + PlaybackStatePollCount + " for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateAfterStart);
+
+                        if (stateAfterStart != 0)
+                        {
+                            stateAfterStartBecameNonZero = true;
+                            break;
+                        }
                     }
 
-                    stateRead = true;
-                    Logger.Logger.Info("DmManager", "Playback state poll " + (poll + 1) + "/40 for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateAfterStart);
-
-                    if (stateAfterStart != 0)
-                    {
-                        break;
-                    }
+                    Thread.Sleep(PlaybackStatePollSleepMilliseconds);
                 }
 
-                if (!stateRead)
+                if (!stateAfterStartReadAtLeastOnce)
                 {
-                    _lastError = "DMManager: playback state could not be read after start.";
-                    Logger.Logger.Error("DmManager", _lastError);
-                    return false;
+                    Logger.Logger.Warning("DmManager", "Playback state could not be read after start for segment '" + (slot.SegmentName ?? "<null>") + "'. Start is still accepted because audible playback may still be valid.");
                 }
-
-                Logger.Logger.Info("DmManager", "Playback state after start for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateAfterStart);
-
-                if (stateAfterStart == 0)
+                else
                 {
-                    Logger.Logger.Warning("DmManager", "DMManager: segment start call returned success, but playback state stayed at 0.");
+                    Logger.Logger.Info("DmManager", "Playback state after start for segment '" + (slot.SegmentName ?? "<null>") + "' => " + stateAfterStart);
                 }
+
+                if (!stateAfterStartBecameNonZero)
+                {
+                    Logger.Logger.Warning("DmManager", "DMManager: segment start call returned success, but playback state never became non-zero during polling.");
+                }
+            }
+            else
+            {
+                Logger.Logger.Info("DmManager", "Segment '" + (slot.SegmentName ?? "<null>") + "' already appears active. StartSegmentPlayback is skipped.");
             }
 
             _currentType = type;
