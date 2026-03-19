@@ -57,32 +57,32 @@ namespace DirectMusicConverter.Classes
 
             return type switch
             {
-                0x03 => ResolveVariant(variant, "Theme_Viking_Friendly.sgt", "Theme_Viking_Neutral.sgt", "Theme_Viking_Hostile.sgt"),
-                0x04 => ResolveVariant(variant, "Theme_Franken_Friendly.sgt", "Theme_Franken_Neutral.sgt", "Theme_Franken_Hostile.sgt"),
-                0x06 => "Attack_Viking.sgt",
-                0x07 => "Attack_Franken.sgt",
-                0x08 => "Attack_Byzanz.sgt",
-                0x09 => "Attack_Arabs.sgt",
-                0x0A => ResolveVariant(variant, "Mission_Viking1_Standard.sgt", "Mission_Viking1_Wealthy.sgt", "Mission_Viking1_Danger.sgt"),
-                0x0B => ResolveVariant(variant, "Mission_Franken1_Standard.sgt", "Mission_Franken1_Wealthy.sgt", "Mission_Franken1_Danger.sgt"),
-                0x0C => ResolveVariant(variant, "Mission_Franken2_Standard.sgt", "Mission_Franken2_Wealthy.sgt", "Mission_Franken2_Danger.sgt"),
-                0x0D => ResolveVariant(variant, "Mission_Byzanz1_Standard.sgt", "Mission_Byzanz1_Wealthy.sgt", "Mission_Byzanz1_Danger.sgt"),
-                0x0E => ResolveVariant(variant, "Mission_Byzanz2_Standard.sgt", "Mission_Byzanz2_Wealthy.sgt", "Mission_Byzanz2_Danger.sgt"),
-                0x0F => ResolveVariant(variant, "Mission_Byzanz3_Standard.sgt", "Mission_Byzanz3_Wealthy.sgt", "Mission_Byzanz3_Danger.sgt"),
-                0x10 => ResolveVariant(variant, "Mission_Byzanz4_Standard.sgt", "Mission_Byzanz4_Wealthy.sgt", "Mission_Byzanz4_Danger.sgt"),
-                0x11 => ResolveVariant(variant, "Mission_Arabs1_Standard.sgt", "Mission_Arabs1_Wealthy.sgt", "Mission_Arabs1_Danger.sgt"),
-                0x12 => ResolveVariant(variant, "Mission_Arabs2_Standard.sgt", "Mission_Arabs2_Wealthy.sgt", "Mission_Arabs2_Danger.sgt"),
-                0x13 => ResolveVariant(variant, "Mission_Arabs3_Standard.sgt", "Mission_Arabs3_Wealthy.sgt", "Mission_Arabs3_Danger.sgt"),
-                0x14 => ResolveVariant(variant, "Mission_Midgard1_Standard.sgt", "Mission_Midgard1_Standard.sgt", "Mission_Midgard1_Standard.sgt"),
-                0x15 => ResolveVariant(variant, "Mission_Midgard2_Standard.sgt", "Mission_Midgard2_Standard.sgt", "Mission_Midgard2_Standard.sgt"),
-                0x1F => ResolveVariant(variant, "Mission_AddOn_Arabs1_Standard.sgt", "Mission_AddOn_Arabs1_Wealthy.sgt", "Mission_AddOn_Arabs1_Danger.sgt"),
-                0x20 => ResolveVariant(variant, "Mission_AddOn_Arabs2_Standard.sgt", "Mission_AddOn_Arabs2_Wealthy.sgt", "Mission_AddOn_Arabs2_Danger.sgt"),
-                0x21 => ResolveVariant(variant, "Mission_AddOn_Franken1_Standard.sgt", "Mission_AddOn_Franken1_Standard.sgt", "Mission_AddOn_Franken1_Standard.sgt"),
-                0x22 => ResolveVariant(variant, "Mission_AddOn_Franken2_Standard.sgt", "Mission_AddOn_Franken2_Wealthy.sgt", "Mission_AddOn_Franken2_Danger.sgt"),
-                0x23 => ResolveVariant(variant, "Mission_AddOn_Franken3_Standard.sgt", "Mission_AddOn_Franken3_Wealthy.sgt", "Mission_AddOn_Franken3_Danger.sgt"),
-                0x24 => ResolveVariant(variant, "Mission_AddOn_Nordland_Standard.sgt", "Mission_AddOn_Nordland_Standard.sgt", "Mission_AddOn_Nordland_Standard.sgt"),
-                0x25 => ResolveVariant(variant, "Mission_AddOn_Underworld_Standard.sgt", "Mission_AddOn_Underworld_Standard.sgt", "Mission_AddOn_Underworld_Standard.sgt"),
-                0x26 => ResolveVariant(variant, "Mission_AddOn_Asgard_Standard.sgt", "Mission_AddOn_Asgard_Standard.sgt", "Mission_AddOn_Asgard_Standard.sgt"),
+                0x03 => ResolveVariant(variant, "Theme_Viking_Friendly.sgt", "Theme_Viking_Neutral.sgt", "Theme_Viking_Hostile.sgt"), // 3
+                0x04 => ResolveVariant(variant, "Theme_Franken_Friendly.sgt", "Theme_Franken_Neutral.sgt", "Theme_Franken_Hostile.sgt"), // 4
+                0x06 => "Attack_Viking.sgt", // 6
+                0x07 => "Attack_Franken.sgt", // 7
+                0x08 => "Attack_Byzanz.sgt", // 8
+                0x09 => "Attack_Arabs.sgt", // 9
+                0x0A => ResolveVariant(variant, "Mission_Viking1_Standard.sgt", "Mission_Viking1_Wealthy.sgt", "Mission_Viking1_Danger.sgt"), // 10
+                0x0B => ResolveVariant(variant, "Mission_Franken1_Standard.sgt", "Mission_Franken1_Wealthy.sgt", "Mission_Franken1_Danger.sgt"), // 11
+                0x0C => ResolveVariant(variant, "Mission_Franken2_Standard.sgt", "Mission_Franken2_Wealthy.sgt", "Mission_Franken2_Danger.sgt"), // 12
+                0x0D => ResolveVariant(variant, "Mission_Byzanz1_Standard.sgt", "Mission_Byzanz1_Wealthy.sgt", "Mission_Byzanz1_Danger.sgt"), // 13
+                0x0E => ResolveVariant(variant, "Mission_Byzanz2_Standard.sgt", "Mission_Byzanz2_Wealthy.sgt", "Mission_Byzanz2_Danger.sgt"), // 14
+                0x0F => ResolveVariant(variant, "Mission_Byzanz3_Standard.sgt", "Mission_Byzanz3_Wealthy.sgt", "Mission_Byzanz3_Danger.sgt"), // 15
+                0x10 => ResolveVariant(variant, "Mission_Byzanz4_Standard.sgt", "Mission_Byzanz4_Wealthy.sgt", "Mission_Byzanz4_Danger.sgt"), // 16
+                0x11 => ResolveVariant(variant, "Mission_Arabs1_Standard.sgt", "Mission_Arabs1_Wealthy.sgt", "Mission_Arabs1_Danger.sgt"), // 17
+                0x12 => ResolveVariant(variant, "Mission_Arabs2_Standard.sgt", "Mission_Arabs2_Wealthy.sgt", "Mission_Arabs2_Danger.sgt"), // 18
+                0x13 => ResolveVariant(variant, "Mission_Arabs3_Standard.sgt", "Mission_Arabs3_Wealthy.sgt", "Mission_Arabs3_Danger.sgt"), // 19
+                0x14 => ResolveVariant(variant, "Mission_Midgard1_Standard.sgt", "Mission_Midgard1_Standard.sgt", "Mission_Midgard1_Standard.sgt"), // 20
+                0x15 => ResolveVariant(variant, "Mission_Midgard2_Standard.sgt", "Mission_Midgard2_Standard.sgt", "Mission_Midgard2_Standard.sgt"), // 21
+                0x1F => ResolveVariant(variant, "Mission_AddOn_Arabs1_Standard.sgt", "Mission_AddOn_Arabs1_Wealthy.sgt", "Mission_AddOn_Arabs1_Danger.sgt"), // 31
+                0x20 => ResolveVariant(variant, "Mission_AddOn_Arabs2_Standard.sgt", "Mission_AddOn_Arabs2_Wealthy.sgt", "Mission_AddOn_Arabs2_Danger.sgt"), // 32
+                0x21 => ResolveVariant(variant, "Mission_AddOn_Franken1_Standard.sgt", "Mission_AddOn_Franken1_Standard.sgt", "Mission_AddOn_Franken1_Standard.sgt"), // 33
+                0x22 => ResolveVariant(variant, "Mission_AddOn_Franken2_Standard.sgt", "Mission_AddOn_Franken2_Wealthy.sgt", "Mission_AddOn_Franken2_Danger.sgt"), // 34
+                0x23 => ResolveVariant(variant, "Mission_AddOn_Franken3_Standard.sgt", "Mission_AddOn_Franken3_Wealthy.sgt", "Mission_AddOn_Franken3_Danger.sgt"), // 35
+                0x24 => ResolveVariant(variant, "Mission_AddOn_Nordland_Standard.sgt", "Mission_AddOn_Nordland_Standard.sgt", "Mission_AddOn_Nordland_Standard.sgt"), // 36
+                0x25 => ResolveVariant(variant, "Mission_AddOn_Underworld_Standard.sgt", "Mission_AddOn_Underworld_Standard.sgt", "Mission_AddOn_Underworld_Standard.sgt"), // 37
+                0x26 => ResolveVariant(variant, "Mission_AddOn_Asgard_Standard.sgt", "Mission_AddOn_Asgard_Standard.sgt", "Mission_AddOn_Asgard_Standard.sgt"), // 38
                 _ => null,
             };
         }
@@ -160,7 +160,11 @@ namespace DirectMusicConverter.Classes
 
             if (stateBeforeStart == 0)
             {
-                bool started = backend.StartSegmentPlayback(_audiopath, slot.SegmentHandle, StartFlags, StartTime, RepeatCount, StartUnknown);
+                // bool started = backend.StartSegmentPlayback(_audiopath, slot.SegmentHandle, StartFlags, StartTime, RepeatCount, StartUnknown);
+
+                backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out byte _);
+                bool started = backend.StartSegmentPlayback(_audiopath, slot.SegmentHandle, 0x2000, 0, -1, 1);
+
                 Logger.Logger.Info("DmManager", "StartSegmentPlayback returned " + started);
 
                 if (!started)
@@ -174,8 +178,6 @@ namespace DirectMusicConverter.Classes
                 bool stateRead = false;
                 for (int poll = 0; poll < 40; poll++)
                 {
-                    Thread.Sleep(25);
-
                     if (!backend.GetPlaybackStateOfSegment(slot.SegmentHandle, out stateAfterStart))
                     {
                         _lastError = "DMManager: geGetPlaybackStateOfSegment failed after start.";
@@ -342,9 +344,6 @@ namespace DirectMusicConverter.Classes
                 return null;
             }
 
-            Logger.Logger.Info("DmManager", "Waiting 250 ms after geLoadCachedObject to let native segment dependencies settle.");
-            System.Threading.Thread.Sleep(250);
-
             freeSlot.Clear();
             freeSlot.IsUsed = true;
             freeSlot.Type = type;
@@ -405,20 +404,8 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
-            Logger.Logger.Info("DmManager", "Waiting 100 ms after geActivateAudiopath to let native audiopath settle.");
-            Thread.Sleep(100);
-
-            bool volumeSet = backend.SetVolumeOfAudiopath(audiopath, 0, 0);
-            Logger.Logger.Info("DmManager", "SetVolumeOfAudiopath(normalize) returned " + volumeSet + ", volume=0, ramp=0");
-
-            if (!volumeSet)
-            {
-                _lastError = "DMManager: geSetVolumeOfAudiopath failed.";
-                Logger.Logger.Error("DmManager", _lastError);
-                backend.ActivateAudiopath(audiopath, false);
-                backend.DestroyAudiopath(audiopath);
-                return false;
-            }
+            Logger.Logger.Info("DmManager", "Waiting 20 ms after geActivateAudiopath to let native audiopath settle.");
+            Thread.Sleep(20);
 
             _audiopath = audiopath;
             Logger.Logger.Info("DmManager", "EnsureAudiopath succeeded.");
