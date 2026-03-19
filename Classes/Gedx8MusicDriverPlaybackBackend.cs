@@ -67,13 +67,6 @@ namespace DirectMusicConverter.Classes
             {
                 ZeroMemory(nativeRecordPointer, NativeSegmentRecordSize);
 
-                // Native layout reconstructed from gedx8musicdrv +0x20:
-                // record + 0x00 = out wrapper pointer written by the DLL
-                // record + 0x04 = descriptor.typeOrKind (0 for segment load path)
-                // record + 0x08 = ANSI file name pointer
-                // record + 0x0C = reserved / zero
-                // record + 0x10 = reserved / zero
-                // record + 0x14 = reserved / zero
                 Marshal.WriteInt32(nativeRecordPointer, 0x04, 0);
                 Marshal.WriteIntPtr(nativeRecordPointer, 0x08, fileNamePointer);
 
@@ -110,6 +103,7 @@ namespace DirectMusicConverter.Classes
 
                 Logger.Logger.Info("PlaybackBackend", "Record fields after load: +00=" + Logger.Logger.FormatPointer(wrapperPointer) + ", +04=" + Logger.Logger.FormatPointer(descriptorKind) + ", +08=" + Logger.Logger.FormatPointer(descriptorFileName));
                 DumpSegmentWrapper("PlaybackBackend", wrapperPointer);
+                DumpNativeHandleChain("PlaybackBackend", "Segment handle chain after geLoadCachedObject", wrapperPointer);
 
                 if (wrapperPointer == IntPtr.Zero)
                 {
@@ -291,6 +285,7 @@ namespace DirectMusicConverter.Classes
             if (audiopathPointer == IntPtr.Zero)
             {
                 LastError = "DMManager: null audiopath wrapper.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
                 return false;
             }
 
@@ -300,10 +295,23 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
+            Logger.Logger.Info(
+                "PlaybackBackend",
+                "Calling geActivateAudiopath with DriverInstance=" + Logger.Logger.FormatPointer(_loaderBackend.DriverInstance) +
+                ", audiopathPointer=" + Logger.Logger.FormatPointer(audiopathPointer) +
+                ", active=" + (active ? 1 : 0));
+
+            Logger.Logger.DumpBytes("PlaybackBackend", "Audiopath handle bytes before geActivateAudiopath", audiopathPointer, 0x40);
+
             byte result = method(_loaderBackend.DriverInstance, audiopathPointer, active ? 1 : 0);
+
+            Logger.Logger.Info("PlaybackBackend", "geActivateAudiopath result=" + result);
+            Logger.Logger.DumpBytes("PlaybackBackend", "Audiopath handle bytes after geActivateAudiopath", audiopathPointer, 0x40);
+
             if (result == 0)
             {
                 LastError = "DMManager: geActivateAudiopath failed.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
                 return false;
             }
 
@@ -329,10 +337,35 @@ namespace DirectMusicConverter.Classes
             IntPtr outAudiopath = IntPtr.Zero;
             IntPtr optionalSegmentWrapper = ResolveNativePointer(segmentHandle);
 
+            Logger.Logger.Info(
+                "PlaybackBackend",
+                "Calling geCreateAudiopath with DriverInstance=" + Logger.Logger.FormatPointer(_loaderBackend.DriverInstance) +
+                ", Mode=" + nativeConfig.Mode +
+                ", Config=0x" + nativeConfig.Config.ToString("X8") +
+                ", optionalSegmentWrapper=" + Logger.Logger.FormatPointer(optionalSegmentWrapper) +
+                ", outAudiopath(before)=" + Logger.Logger.FormatPointer(outAudiopath));
+
+            if (optionalSegmentWrapper != IntPtr.Zero)
+            {
+                DumpNativeHandleChain("PlaybackBackend", "Segment handle chain before geCreateAudiopath", optionalSegmentWrapper);
+            }
+
             byte result = method(_loaderBackend.DriverInstance, ref nativeConfig, ref outAudiopath, optionalSegmentWrapper);
+
+            Logger.Logger.Info(
+                "PlaybackBackend",
+                "geCreateAudiopath result=" + result +
+                ", outAudiopath(after)=" + Logger.Logger.FormatPointer(outAudiopath));
+
+            if (outAudiopath != IntPtr.Zero)
+            {
+                Logger.Logger.DumpBytes("PlaybackBackend", "Audiopath handle bytes after geCreateAudiopath", outAudiopath, 0x40);
+            }
+
             if (result == 0 || outAudiopath == IntPtr.Zero)
             {
                 LastError = "DMManager: geCreateAudiopath failed.";
+                Logger.Logger.Error("PlaybackBackend", LastError);
                 return false;
             }
 
@@ -592,6 +625,30 @@ namespace DirectMusicConverter.Classes
                 ", +10=" + Logger.Logger.FormatPointer(field10));
 
             Logger.Logger.DumpBytes(scope, "Segment wrapper bytes", wrapperPointer, 0x20);
+        }
+
+        private static void DumpNativeHandleChain(string scope, string title, IntPtr wrapperPointer)
+        {
+            Logger.Logger.Info(scope, title + ": wrapperPointer=" + Logger.Logger.FormatPointer(wrapperPointer));
+
+            if (wrapperPointer == IntPtr.Zero)
+            {
+                Logger.Logger.Warning(scope, title + ": wrapper pointer is null.");
+                return;
+            }
+
+            Logger.Logger.DumpBytes(scope, title + " wrapper", wrapperPointer, 0x20);
+
+            int field04 = Marshal.ReadInt32(wrapperPointer, 0x04);
+            int field08 = Marshal.ReadInt32(wrapperPointer, 0x08);
+            IntPtr innerPointer = Marshal.ReadIntPtr(wrapperPointer, 0x0C);
+
+            Logger.Logger.Info(scope, title + ": wrapper[+04]=0x" + field04.ToString("X8") + ", wrapper[+08]=0x" + field08.ToString("X8") + ", wrapper[+0C]=" + Logger.Logger.FormatPointer(innerPointer));
+
+            if (innerPointer != IntPtr.Zero)
+            {
+                Logger.Logger.DumpBytes(scope, title + " inner", innerPointer, 0x80);
+            }
         }
 
         private static string EnsureTrailingSlash(string path)
