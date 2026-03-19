@@ -415,7 +415,19 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
-            Logger.Logger.Info("DmManager", "Waiting 20 ms after geActivateAudiopath to let native audiopath settle.");
+            bool normalized = backend.SetVolumeOfAudiopath(audiopath, 0, 0);
+            Logger.Logger.Info("DmManager", "SetVolumeOfAudiopath(audiopath, 0, 0) returned " + normalized);
+
+            if (!normalized)
+            {
+                _lastError = "DMManager: geSetVolumeOfAudiopath failed during normal audiopath initialization.";
+                Logger.Logger.Error("DmManager", _lastError);
+                backend.ActivateAudiopath(audiopath, false);
+                backend.DestroyAudiopath(audiopath);
+                return false;
+            }
+
+            Logger.Logger.Info("DmManager", "Waiting 20 ms after audiopath normalization to let native audiopath settle.");
             Thread.Sleep(20);
 
             _audiopath = audiopath;
