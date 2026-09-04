@@ -1,137 +1,196 @@
-# DirectMusic / gedx8musicdrv Status
+# DirectMusicConverter
 
-This document summarizes the current reverse-engineering and integration status of `gedx8musicdrv.dll` and the DirectMusic playback path used by the project.
+DirectMusicConverter is a Windows console application that plays the DirectMusic
+`.sgt` soundtrack used by *Cultures: 8th Wonder of the World*. It uses the
+reverse-engineered `GetInterface2` ABI of `gedx8musicdrv.dll` and the original
+DirectMusic data below the game's `data\dm2` directory.
 
-## What currently works
+Despite its historical name, the application is a playback and integration
+tool. It does not convert `.sgt` files into another audio format.
 
-The main playback path is working.
+## Project status
 
-The following steps are currently confirmed by ASM review and runtime behavior:
+The application is complete for its intended purpose. The normal music path has
+been implemented and verified in practice:
 
-- `+0x08` creates the driver instance
-- `+0x10` initializes the synthesizer using the 12-byte init structure
-- `+0x20` loads a cached object and returns the created wrapper
-- `+0x34` creates an audiopath object
-- `+0x38` activates an audiopath object
-- `+0x3C` is currently used as the normal audiopath state / volume-style call and is exposed as `SetVolumeOfAudiopath(...)`
-- `+0x54` starts segment playback using the loaded segment wrapper
-- `+0x5C` queries playback state using the loaded segment wrapper
+- load the native music driver and obtain its method table;
+- create a driver instance and initialize DirectMusic;
+- configure the DirectMusic loader search directory;
+- load the selected `.sgt` segment;
+- create and activate its audio path;
+- start looping playback;
+- query playback state; and
+- stop playback and shut down the native resources.
 
-In practical terms, the project can now:
+The synthesizer ABI uses the correct 12-byte x86 field order:
 
-- load `.sgt` segments
-- create and activate an audiopath
-- start segment playback
-- play music successfully in stable runs
+1. window handle;
+2. voice/PChannel count; and
+3. sample rate.
 
-## Important practical finding
+## Requirements
 
-The biggest remaining issue was **not** the basic playback path itself, but **native timing / settling**.
+- Windows with the legacy DirectMusic runtime available;
+- .NET 10 SDK or the corresponding .NET 10 runtime for a prebuilt executable;
+- a matching native driver DLL; and
+- an installed copy of the game containing `data\dm2`.
 
-The driver can report success for:
+The original game and its original `gedx8musicdrv.dll` are 32-bit. The x86 build
+is therefore the recommended configuration for original-game compatibility.
 
-- segment loading
-- audiopath creation
-- audiopath activation
-- playback start
+The executable selects the driver name from its own process architecture:
 
-while the final audio output is still not fully ready.
+| Process architecture | Driver filename |
+| --- | --- |
+| x86 | `gedx8musicdrv.dll` |
+| x64 | `Gedx8MusicDriver.dll` |
 
-Without extra settling time, this led to inconsistent behavior such as:
+The process architecture, DLL architecture and selected build configuration
+must match.
 
-- no audible sound
-- wrong instruments
-- playback state reporting `0` while sound was already audible
-- playback state reporting `1` while the final output was still incorrect
+## Build
 
-## Current stable workaround
+Build the recommended x86 configuration from the project directory:
 
-Playback became stable after introducing explicit settling time at key transition points:
-
-- wait after `geLoadCachedObject`
-- wait after `geActivateAudiopath`
-- poll playback state longer after `geStartSegmentPlayback`
-
-These waits are currently required for stable playback and should be treated as part of the practical integration, not as arbitrary hacks.
-
-## Current synthesizer init path
-
-The currently reliable synthesizer init path is the fixed legacy mapping:
-
-- mode `0` -> `44100`, `0x40`
-- mode `1` -> `22050`, `0x10`
-- mode `2` -> `11025`, `0x08`
-
-Although the DLL accepts a sample rate through the 12-byte init structure, the known-good runtime path currently remains the fixed legacy mapping above.
-
-## Normal playback path
-
-The normal playback path should currently do the following:
-
-1. create the audiopath
-2. activate the audiopath
-3. normalize the audiopath state with:
-
-```csharp
-SetVolumeOfAudiopath(audiopath, 0, 0);
+```powershell
+dotnet build DirectMusicConverter.csproj -c Release -p:Platform=x86
 ```
 
-4. wait for the native pipeline to settle
-5. start segment playback
-6. poll playback state long enough for the native graph to stabilize
+An x64 configuration is also defined for use with the matching x64 driver:
 
-## Known limitations
+```powershell
+dotnet build DirectMusicConverter.csproj -c Release -p:Platform=x64
+```
 
-A few parts are still only partially understood.
+## Usage
 
-### `+0x58`
+```text
+DirectMusicConverter.exe [gameRoot] [type] [variant] [driverDirectory] [synthMode] [masterVolume]
+```
 
-`+0x58` is a real segment-wrapper method, but it is **not** part of the reliable normal startup sequence.
+All arguments are positional. Numeric arguments are parsed as decimal integers;
+do not pass values using a `0x` prefix.
 
-Calling it at the wrong point can push playback back into a non-running state, so it should not be inserted into the standard start path without a clearly confirmed reason.
+| Position | Parameter | Default | Description |
+| ---: | --- | --- | --- |
+| 1 | `gameRoot` | Current directory | Game installation directory. The program expects `data\dm2` below this path. |
+| 2 | `type` | `3` | Music selection ID. See the table below. |
+| 3 | `variant` | `4` | Arrangement variant: `4`, `5` or `6`. |
+| 4 | `driverDirectory` | `gameRoot` | Directory containing the architecture-matching native driver DLL. |
+| 5 | `synthMode` | `0` | Synthesizer and audio-path mode: `0`, `1` or `2`. |
+| 6 | `masterVolume` | `100` | Master volume in percent. Values are clamped to `0` through `100`. |
 
-### `+0x40`, `+0x44`, `+0x48`
+Quote paths that contain spaces.
 
-Additional wrappers exist around:
+### Example
 
-- `+0x40`
-- `+0x44`
-- `+0x48`
+Play the friendly Viking theme with the full-quality synthesizer mode:
 
-These appear to belong to an audiopath property / dispatcher layer, but their exact semantics are still not fully confirmed.
+```powershell
+DirectMusicConverter.exe "E:\Steam\steamapps\common\Cultures 8th Wonder" 3 4 "E:\Steam\steamapps\common\Cultures 8th Wonder" 0 100
+```
 
-They are not required for the currently working playback path and should be treated as future reverse-engineering targets rather than mandatory startup calls.
+The same invocation through `dotnet run` is:
 
-## Segment wrapper notes
+```powershell
+dotnet run --project DirectMusicConverter.csproj -c Release -p:Platform=x86 -- "E:\Steam\steamapps\common\Cultures 8th Wonder" 3 4 "E:\Steam\steamapps\common\Cultures 8th Wonder" 0 100
+```
 
-The loaded segment wrapper currently behaves consistently enough to rule out a simple pointer-corruption explanation.
+Playback continues until ENTER is pressed.
 
-Observed stable fields:
+## Variant parameter
 
-- `wrapper + 0x04 = 0`
-- `wrapper + 0x08 = 2`
-- `wrapper + 0x0C = native payload pointer used by the start / reset / state wrappers`
+The `variant` parameter selects the arrangement for themes and missions:
 
-Differences in wrapper addresses such as `...0700` vs `...0788` are not, by themselves, evidence of corruption. They are more likely normal allocation differences or different internal native states.
+| Value | Theme name | Mission name |
+| ---: | --- | --- |
+| `4` | Friendly | Standard |
+| `5` | Neutral | Wealthy |
+| `6` | Hostile | Danger |
 
-## What this means overall
+Attack tracks and missions that only have a Standard arrangement ignore the
+distinction because every variant resolves to the same file. Any value other
+than `4`, `5` or `6` falls back to Friendly/Standard.
 
-The core playback chain is now understood well enough to work.
+## Synthesizer modes
 
-The remaining fragility was mainly caused by the fact that successful native return values do **not** mean the entire DirectMusic playback graph is already fully ready.
+| `synthMode` | Voices/PChannels | Sample rate | Audio-path behavior |
+| ---: | ---: | ---: | --- |
+| `0` | 64 | 44,100 Hz | Uses the audio-path configuration embedded in the segment. |
+| `1` | 16 | 22,050 Hz | Uses the audio-path configuration embedded in the segment. |
+| `2` | 8 | 11,025 Hz | Uses a standard driver-created audio path. |
 
-The current practical solution is therefore:
+Mode `0` is the recommended setting and provides the highest playback quality.
+Modes `1` and `2` intentionally reduce sample rate and polyphony to reproduce
+the legacy quality modes.
 
-- keep the known-good fixed synth init path
-- keep `SetVolumeOfAudiopath(audiopath, 0, 0)` in the normal path
-- keep the timing delays and longer playback-state polling
-- document the waits clearly in code comments as required native settling behavior
+## Music type parameter
 
-## Next steps
+The following decimal values resolve to playable `.sgt` segments:
 
-Recommended future work:
+| Decimal | Hex | Selection |
+| ---: | ---: | --- |
+| `3` | `0x03` | Viking theme |
+| `4` | `0x04` | Franken theme |
+| `6` | `0x06` | Viking attack |
+| `7` | `0x07` | Franken attack |
+| `8` | `0x08` | Byzantine attack |
+| `9` | `0x09` | Arab attack |
+| `10` | `0x0A` | Viking mission 1 |
+| `11` | `0x0B` | Franken mission 1 |
+| `12` | `0x0C` | Franken mission 2 |
+| `13` | `0x0D` | Byzantine mission 1 |
+| `14` | `0x0E` | Byzantine mission 2 |
+| `15` | `0x0F` | Byzantine mission 3 |
+| `16` | `0x10` | Byzantine mission 4 |
+| `17` | `0x11` | Arab mission 1 |
+| `18` | `0x12` | Arab mission 2 |
+| `19` | `0x13` | Arab mission 3 |
+| `20` | `0x14` | Midgard mission 1 |
+| `21` | `0x15` | Midgard mission 2 |
+| `31` | `0x1F` | Add-on Arab mission 1 |
+| `32` | `0x20` | Add-on Arab mission 2 |
+| `33` | `0x21` | Add-on Franken mission 1 |
+| `34` | `0x22` | Add-on Franken mission 2 |
+| `35` | `0x23` | Add-on Franken mission 3 |
+| `36` | `0x24` | Add-on Nordland mission |
+| `37` | `0x25` | Add-on Underworld mission |
+| `38` | `0x26` | Add-on Asgard mission |
 
-- clean up the timing constants and centralize them
-- document the stable startup sequence directly in code
-- continue reverse-engineering `+0x40 / +0x44 / +0x48`
-- further investigate instrument / dependency binding behavior for full determinism
+Values `22` through `30` are internal timed control events from the original
+music manager. They do not select a standalone segment and should not be used
+as the initial CLI playback type. Other unmapped values fail with an unresolved
+segment error.
+
+## Playback behavior
+
+The working playback sequence is:
+
+1. initialize the driver and DirectMusic performance;
+2. load the requested segment from `data\dm2`;
+3. create and activate the audio path;
+4. normalize the audio-path volume to native value `0` (no attenuation);
+5. wait 20 ms for the native audio path to settle;
+6. start the segment with looping enabled; and
+7. poll the native playback state for up to approximately 800 ms.
+
+The short settling delay and state polling are intentional integration behavior
+for the asynchronous DirectMusic graph. A successful native return value does
+not necessarily mean that the entire graph is immediately ready.
+
+## Logging and exit codes
+
+Detailed diagnostics are written to `directmusic_debug.log` next to the running
+application.
+
+| Exit code | Meaning |
+| ---: | --- |
+| `0` | Playback completed and shutdown finished. |
+| `2` | Game directory or `data\dm2` was not found. |
+| `3` | Driver, DirectMusic or loader initialization failed. |
+| `4` | Setting the master volume failed. |
+| `5` | Loading or starting the selected music failed. |
+
+Errors are also printed to the console. The log contains the selected mode,
+resolved segment, native method pointers, HRESULT values and playback-state
+diagnostics.
