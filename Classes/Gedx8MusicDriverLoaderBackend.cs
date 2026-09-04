@@ -30,7 +30,7 @@ namespace DirectMusicConverter.Classes
             DriverDirectory = driverDirectory;
             SynthMode = synthMode;
             PreferredSampleRate = 0;
-            AudioPathConfig = ResolveSynthConfig(synthMode, 0).Config;
+            AudioPathConfig = ResolveSynthConfig(synthMode, 0).VoiceCount;
         }
 
         internal string? DriverDirectory { get; }
@@ -244,7 +244,7 @@ namespace DirectMusicConverter.Classes
                 "LoaderBackend",
                 "Initializing synthesizer. SynthMode=" + SynthMode +
                 ", SampleRate=" + synthConfig.SampleRate +
-                ", Config=0x" + synthConfig.Config.ToString("X2") +
+                ", PChannelCount=0x" + synthConfig.VoiceCount.ToString("X2") +
                 ", Source=" + sampleRateSource);
 
             byte result = initialize(DriverInstance, ref synthConfig);
@@ -257,12 +257,12 @@ namespace DirectMusicConverter.Classes
                     "DMManager: geInitSynthesizer failed. " +
                     "SynthMode=" + SynthMode +
                     ", SampleRate=" + synthConfig.SampleRate +
-                    ", Config=0x" + synthConfig.Config.ToString("X2") +
+                    ", PChannelCount=0x" + synthConfig.VoiceCount.ToString("X2") +
                     ", Source=" + sampleRateSource + ".";
                 return false;
             }
 
-            AudioPathConfig = synthConfig.Config;
+            AudioPathConfig = synthConfig.VoiceCount;
             return true;
         }
 
@@ -501,21 +501,21 @@ namespace DirectMusicConverter.Classes
             {
                 1 => new InitSynthConfig
                 {
-                    Reserved00 = 0,
+                    WindowHandle = 0,
+                    VoiceCount = 0x10,
                     SampleRate = 22050,
-                    Config = 0x10,
                 },
                 2 => new InitSynthConfig
                 {
-                    Reserved00 = 0,
+                    WindowHandle = 0,
+                    VoiceCount = 0x08,
                     SampleRate = 11025,
-                    Config = 0x08,
                 },
                 _ => new InitSynthConfig
                 {
-                    Reserved00 = 0,
+                    WindowHandle = 0,
+                    VoiceCount = 0x40,
                     SampleRate = 44100,
-                    Config = 0x40,
                 },
             };
         }
@@ -523,9 +523,9 @@ namespace DirectMusicConverter.Classes
         [StructLayout(LayoutKind.Sequential)]
         private struct InitSynthConfig
         {
-            internal int Reserved00;
+            internal int WindowHandle;
+            internal int VoiceCount;
             internal int SampleRate;
-            internal int Config;
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

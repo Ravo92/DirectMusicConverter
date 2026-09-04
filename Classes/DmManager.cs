@@ -392,7 +392,7 @@ namespace DirectMusicConverter.Classes
             int audiopathMode = _musicMode == 2 ? 1 : 3;
             object? segmentForAudiopath = _musicMode == 2 ? null : slot.SegmentHandle;
 
-            Logger.Logger.Info("DmManager", "Creating audiopath. MusicMode=" + _musicMode + ", AudiopathMode=" + audiopathMode + ", Config=0x" + _audiopathConfig.ToString("X2") + ", SegmentName='" + (slot.SegmentName ?? "<null>") + "'");
+            Logger.Logger.Info("DmManager", "Creating audiopath. MusicMode=" + _musicMode + ", AudiopathMode=" + audiopathMode + ", PChannelCount=0x" + _audiopathConfig.ToString("X2") + ", SegmentName='" + (slot.SegmentName ?? "<null>") + "'");
 
             bool created = backend.CreateAudiopath(audiopathMode, _audiopathConfig, segmentForAudiopath, out object? audiopath);
             Logger.Logger.Info("DmManager", "CreateAudiopath returned " + created);

@@ -330,8 +330,8 @@ namespace DirectMusicConverter.Classes
 
             DmAudiopathConfig nativeConfig = new()
             {
-                Mode = audiopathMode,
-                Config = config,
+                Type = audiopathMode,
+                PChannelCount = config,
             };
 
             IntPtr outAudiopath = IntPtr.Zero;
@@ -340,8 +340,8 @@ namespace DirectMusicConverter.Classes
             Logger.Logger.Info(
                 "PlaybackBackend",
                 "Calling geCreateAudiopath with DriverInstance=" + Logger.Logger.FormatPointer(_loaderBackend.DriverInstance) +
-                ", Mode=" + nativeConfig.Mode +
-                ", Config=0x" + nativeConfig.Config.ToString("X8") +
+                ", Type=" + nativeConfig.Type +
+                ", PChannelCount=0x" + nativeConfig.PChannelCount.ToString("X8") +
                 ", optionalSegmentWrapper=" + Logger.Logger.FormatPointer(optionalSegmentWrapper) +
                 ", outAudiopath(before)=" + Logger.Logger.FormatPointer(outAudiopath));
 
@@ -683,8 +683,8 @@ namespace DirectMusicConverter.Classes
         [StructLayout(LayoutKind.Sequential)]
         private struct DmAudiopathConfig
         {
-            internal int Mode;
-            internal int Config;
+            internal int Type;
+            internal int PChannelCount;
         }
 
         internal sealed class NativeHandle
