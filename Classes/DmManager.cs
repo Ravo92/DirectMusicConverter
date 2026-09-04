@@ -17,6 +17,7 @@ namespace DirectMusicConverter.Classes
         private const int FadeDownMilliseconds = 300;
 
         private const int PlaybackStatePollCount = 40;
+        private const int AudiopathSettleDelayMilliseconds = 150;
         private const int PlaybackStatePollSleepMilliseconds = 20;
 
         private readonly DmSegmentSlot[] _slots;
@@ -60,8 +61,10 @@ namespace DirectMusicConverter.Classes
 
             return type switch
             {
+                0x02 => ResolveVariant(variant, "Theme_Arabs_Friendly.sgt", "Theme_Arabs_Neutral.sgt", "Theme_Arabs_Hostile.sgt"), // 2
                 0x03 => ResolveVariant(variant, "Theme_Viking_Friendly.sgt", "Theme_Viking_Neutral.sgt", "Theme_Viking_Hostile.sgt"), // 3
                 0x04 => ResolveVariant(variant, "Theme_Franken_Friendly.sgt", "Theme_Franken_Neutral.sgt", "Theme_Franken_Hostile.sgt"), // 4
+                0x05 => ResolveVariant(variant, "Theme_Byzanz_Friendly.sgt", "Theme_Byzanz_Neutral.sgt", "Theme_Byzanz_Hostile.sgt"), // 5
                 0x06 => "Attack_Viking.sgt", // 6
                 0x07 => "Attack_Franken.sgt", // 7
                 0x08 => "Attack_Byzanz.sgt", // 8
@@ -427,8 +430,8 @@ namespace DirectMusicConverter.Classes
                 return false;
             }
 
-            Logger.Logger.Info("DmManager", "Waiting 20 ms after audiopath normalization to let native audiopath settle.");
-            Thread.Sleep(20);
+            Logger.Logger.Info("DmManager", $"Waiting {AudiopathSettleDelayMilliseconds} ms after audiopath normalization to let the native audiopath settle.");
+            Thread.Sleep(AudiopathSettleDelayMilliseconds);
 
             _audiopath = audiopath;
             Logger.Logger.Info("DmManager", "EnsureAudiopath succeeded.");

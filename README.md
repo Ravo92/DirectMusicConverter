@@ -130,8 +130,10 @@ The following decimal values resolve to playable `.sgt` segments:
 
 | Decimal | Hex | Selection |
 | ---: | ---: | --- |
+| `2` | `0x02` | Arab theme |
 | `3` | `0x03` | Viking theme |
 | `4` | `0x04` | Franken theme |
+| `5` | `0x05` | Byzanz theme |
 | `6` | `0x06` | Viking attack |
 | `7` | `0x07` | Franken attack |
 | `8` | `0x08` | Byzantine attack |
@@ -170,7 +172,7 @@ The working playback sequence is:
 2. load the requested segment from `data\dm2`;
 3. create and activate the audio path;
 4. normalize the audio-path volume to native value `0` (no attenuation);
-5. wait 20 ms for the native audio path to settle;
+5. wait 150 ms for the native audio path to settle;
 6. start the segment with looping enabled; and
 7. poll the native playback state for up to approximately 800 ms.
 
