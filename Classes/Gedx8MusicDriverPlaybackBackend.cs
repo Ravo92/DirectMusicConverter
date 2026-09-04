@@ -531,7 +531,7 @@ namespace DirectMusicConverter.Classes
             _loaderBackend.Shutdown();
         }
 
-        private string BuildObjectPath(IDmObject obj, string? rootPath)
+        private static string BuildObjectPath(IDmObject obj, string? rootPath)
         {
             if (obj is DmObject concrete && !string.IsNullOrWhiteSpace(concrete.ResolvedPath))
             {
